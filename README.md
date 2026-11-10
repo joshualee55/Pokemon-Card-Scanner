@@ -1,2 +1,2 @@
 # Pokemon-Card-Scanner
-Workaround for Collectr Pro scans
+Free workaround for Collectr Pro scans
