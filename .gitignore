@@ -1,0 +1,6 @@
+# big / generated files - not stored in git
+data/
+venv/
+__pycache__/
+*.pyc
+*.zip

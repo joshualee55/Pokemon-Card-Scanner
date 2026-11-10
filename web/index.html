@@ -1,0 +1,134 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#10141f"><link rel="manifest" href="/manifest.json" crossorigin="use-credentials">
+<link rel="apple-touch-icon" href="/icon-192.png"><title>Card Tracker</title>
+<style>
+:root{--bg:#10141f;--card:#1b2131;--line:#2a3247;--tx:#eef1f8;--mut:#8b94ab;--ac:#ffcb05;--bl:#4d63ff;--ok:#3ecf8e;--bad:#ff6b6b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px system-ui,sans-serif;padding-bottom:80px}
+header{padding:16px;font-weight:700;font-size:20px;padding-top:max(16px,env(safe-area-inset-top))}
+main{padding:0 16px;max-width:560px;margin:auto}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;background:none;border:0;color:var(--mut);padding:14px 0;font-size:14px}nav button.on{color:var(--ac)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}
+.row{display:flex;gap:12px;align-items:center}.row img{width:56px;border-radius:4px}.grow{flex:1;min-width:0}
+.mut{color:var(--mut);font-size:13px}.price{font-weight:700;color:var(--ok)}
+button.p{background:var(--ac);color:#111;border:0;border-radius:10px;padding:12px 16px;font-weight:700;font-size:15px}
+button.s{background:var(--line);color:var(--tx);border:0;border-radius:8px;padding:8px 12px}
+input,select{background:var(--bg);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:16px;width:100%}
+select{width:auto}.cam{position:relative;background:#000;border-radius:12px;overflow:hidden}
+video{width:100%;display:block}.guide{position:absolute;inset:8% 22%;border:3px dashed var(--ac);border-radius:10px;pointer-events:none}
+.tabs{display:none}.tabs.on{display:block}h2{font-size:18px;margin:16px 0 4px}
+.big{font-size:28px;font-weight:800}.win{color:var(--ok)}.lose{color:var(--bad)}
+.sl{margin:10px 0}.sl input[type=range]{width:100%;padding:0;accent-color:var(--ac)}
+.ticks{display:flex;justify-content:space-between;font-size:12px;color:var(--mut)}.ticks span.sug{color:var(--ac);font-weight:700}
+.panel{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:8px}
+.panel .row{margin-top:8px}.qty{width:70px}.cl{font-weight:700}.sm{padding:4px 8px;font-size:13px}
+</style></head><body>
+<header>🃏 Card Tracker</header><main>
+
+<section id="scan" class="tabs on">
+  <div class="cam"><video id="vid" playsinline muted autoplay></video><div class="guide"></div></div>
+  <p class="mut">Fill the dashed frame with the card, flat and well lit.</p>
+  <div class="row"><button class="p grow" id="snap">📷 Scan card</button>
+  <button class="s" id="pick">Upload</button></div>
+  <input type="file" id="file" accept="image/*" hidden>
+  <div id="scanout"></div>
+</section>
+
+<section id="coll" class="tabs"><div class="card"><div class="mut">Collection value</div><div class="big" id="total">$0.00</div></div><div id="items"></div></section>
+
+<section id="trade" class="tabs">
+  <div id="tradeside"></div>
+  <div class="card"><div class="mut" id="verdictlbl">Add cards to both sides</div><div class="big" id="verdict">—</div><div class="mut" id="tdetail"></div></div>
+</section>
+
+<section id="srch" class="tabs"><input id="q" placeholder="Search card name…" autocomplete="off"><div id="results"></div></section>
+</main>
+<nav><button data-t="scan" class="on">Scan</button><button data-t="coll">Collection</button><button data-t="trade">Trade</button><button data-t="srch">Search</button></nav>
+
+<script>
+const $=s=>document.querySelector(s), money=v=>v==null?"n/a":"$"+v.toFixed(2);
+let CONDS=[],MULT={};
+const lbl=c=>MULT[c]?`${MULT[c].label} · ${Math.round(MULT[c].multiplier*100)}% of market`:c;
+// reusable slider: user has final say, suggestion shown as highlighted tick
+function slider(id,val,sug){return `<div class="sl"><input type="range" id="${id}" min="0" max="${CONDS.length-1}" step="1" value="${Math.max(0,CONDS.indexOf(val))}">
+ <div class="ticks">${CONDS.map(c=>`<span class="${c===sug?"sug":""}">${c}${c===sug?" ★":""}</span>`).join("")}</div>
+ <div class="mut"><span class="cl" id="${id}-l">${lbl(val)}</span>${sug?` · suggested: ${sug}`:""}</div></div>`}
+const sliderVal=id=>CONDS[+$("#"+id).value];
+function bindSlider(id,fn){const el=$("#"+id);el.oninput=()=>{$("#"+id+"-l").textContent=lbl(sliderVal(id));fn&&fn(sliderVal(id))}}
+const api=(p,o)=>fetch("/api"+p,o).then(r=>{if(!r.ok)throw new Error(r.status);return r.json()});
+const post=(p,b)=>api(p,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(b)});
+const metaP=api("/meta").then(m=>{CONDS=m.conditions.map(c=>c.code);m.conditions.forEach(c=>MULT[c.code]=c)});
+let tradeSel={give:[],get:[]}, addTarget="coll";
+
+// tabs
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
+  document.querySelectorAll(".tabs").forEach(t=>t.classList.toggle("on",t.id===b.dataset.t));
+  if(b.dataset.t==="coll")loadColl(); if(b.dataset.t==="trade")renderTrade();
+  if(b.dataset.t==="scan")startCam(); else stopCam();
+});
+const cardRow=(c,extra="")=>`<div class="card row"><img src="${c.image}" loading="lazy"><div class="grow"><b>${c.name}</b><div class="mut">${c.set} · #${c.number} · ${c.rarity||""}</div><div class="price">${money(c.adjusted_value??c.market)}</div></div>${extra}</div>`;
+
+// camera
+let stream;
+async function startCam(){ if(stream)return;
+  try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:1920}}});$("#vid").srcObject=stream}
+  catch(e){$("#scanout").innerHTML=`<div class="card mut">Camera unavailable (needs HTTPS or localhost). Use Upload instead.</div>`}}
+function stopCam(){stream&&stream.getTracks().forEach(t=>t.stop());stream=null}
+function cropFrame(){ // crop to the dashed guide (inset 8% / 22%)
+  const v=$("#vid"),W=v.videoWidth,H=v.videoHeight,x=W*.22,y=H*.08,w=W*.56,h=H*.84;
+  const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(v,x,y,w,h,0,0,w,h);return c}
+$("#snap").onclick=()=>{ if(!stream)return $("#file").click(); cropFrame().toBlob(sendScan,"image/jpeg",.9)};
+$("#pick").onclick=()=>$("#file").click();
+$("#file").onchange=e=>{if(e.target.files[0])sendScan(e.target.files[0]);e.target.value=""};
+async function sendScan(blob){
+  $("#scanout").innerHTML=`<div class="card mut">Identifying…</div>`;
+  const fd=new FormData();fd.append("file",blob,"scan.jpg");
+  try{const r=await api("/scan",{method:"POST",body:fd});
+    $("#scanout").innerHTML=`<h2>Best matches</h2><div class="mut">Suggested condition: <b>${r.condition.condition}</b> — rough guess; you set the final condition when adding</div>`+
+    r.matches.slice(0,4).map((m,i)=>`<div id="m${i}">`+cardRow(m,`<div><div class="mut">${Math.round(m.confidence*100)}%</div><button class="s" data-i="${i}">+ Add</button></div>`)+`<div id="p${i}"></div></div>`).join("");
+    $("#scanout").querySelectorAll("button[data-i]").forEach(b=>b.onclick=()=>openAdd(r.matches[b.dataset.i],b.dataset.i,r.condition.condition));
+  }catch(e){$("#scanout").innerHTML=`<div class="card">Scan failed (${e.message}). Has the catalogue been ingested?</div>`}}
+
+function openAdd(m,i,sug){const box=$("#p"+i);if(box.innerHTML){box.innerHTML="";return}
+  box.innerHTML=`<div class="panel"><b>Card condition</b>${slider("cs"+i,"NM",sug)}
+   <div class="row"><span class="mut">Value</span><b class="price" id="pv${i}">${money(m.market)}</b><span class="grow"></span>
+   Qty <input class="qty" id="q${i}" type="number" min="1" value="1"><button class="p" id="sv${i}">Save</button></div></div>`;
+  const upd=c=>$("#pv"+i).textContent=money(m.market==null?null:m.market*MULT[c].multiplier);bindSlider("cs"+i,upd);
+  $("#sv"+i).onclick=async()=>{await post("/collection",{card_id:m.id,condition:sliderVal("cs"+i),qty:+$("#q"+i).value||1});box.innerHTML=`<div class="mut" style="padding:6px">✓ Added to collection</div>`}}
+
+// collection
+async function loadColl(){const r=await api("/collection");$("#total").textContent=money(r.total_value);
+  $("#items").innerHTML=r.items.map((i,n)=>`<div>`+cardRow(i,`<div class="mut" style="text-align:right">${i.condition} ×${i.qty}<br><button class="s sm" data-e="${n}">Edit</button></div>`)+`<div id="ep${n}"></div></div>`).join("")||`<p class="mut">No cards yet — scan one.</p>`;
+  $("#items").querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>{const it=r.items[b.dataset.e],n=b.dataset.e,box=$("#ep"+n);if(box.innerHTML){box.innerHTML="";return}
+    box.innerHTML=`<div class="panel">${slider("ce"+n,it.condition)}<div class="row">Qty <input class="qty" id="eq${n}" type="number" min="1" value="${it.qty}"><span class="grow"></span>
+      <button class="s" id="rm${n}">Remove</button><button class="p" id="es${n}">Save</button></div></div>`;bindSlider("ce"+n);
+    $("#es"+n).onclick=async()=>{await api("/collection/"+it.entry_id,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({condition:sliderVal("ce"+n),qty:+$("#eq"+n).value||1})});loadColl()};
+    $("#rm"+n).onclick=async()=>{if(confirm("Remove from collection?")){await api("/collection/"+it.entry_id,{method:"DELETE"});loadColl()}}})}
+
+// search (also used to add to collection or trade)
+let t;$("#q").oninput=()=>{clearTimeout(t);t=setTimeout(async()=>{const q=$("#q").value.trim();if(q.length<2)return;
+  const r=await api("/search?q="+encodeURIComponent(q));
+  $("#results").innerHTML=r.map((c,i)=>cardRow(c,`<div><button class="s" data-a="coll" data-i="${i}">+Coll</button><br><br><button class="s" data-a="give" data-i="${i}">Give</button> <button class="s" data-a="get" data-i="${i}">Get</button></div>`)).join("");
+  $("#results").querySelectorAll("button").forEach(b=>b.onclick=async()=>{const c=r[b.dataset.i],a=b.dataset.a;
+    if(a==="coll")await post("/collection",{card_id:c.id});else tradeSel[a].push({card_id:c.id,condition:"NM",qty:1,name:c.name});
+    b.textContent="✓"})},300)};
+
+// trade
+function renderTrade(){
+  const side=(k,l)=>`<h2>${l}</h2>`+(tradeSel[k].map((x,i)=>`<div class="card"><div class="row"><div class="grow"><b>${x.name}</b></div>
+    <button class="s sm" data-rm="${k}" data-i="${i}">✕</button></div>${slider(`t${k}${i}`,x.condition)}</div>`).join("")||`<div class="mut">Use Search → Give / Get</div>`);
+  $("#tradeside").innerHTML=side("give","You give")+side("get","You get");
+  ["give","get"].forEach(k=>tradeSel[k].forEach((x,i)=>bindSlider(`t${k}${i}`,c=>{x.condition=c;calcTrade()})));
+  $("#tradeside").querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{tradeSel[b.dataset.rm].splice(b.dataset.i,1);renderTrade()});
+  calcTrade()}
+async function calcTrade(){const {give,get}=tradeSel;if(!give.length||!get.length){$("#verdict").textContent="—";return}
+  const r=await post("/trade",{give,get});
+  $("#verdictlbl").textContent="Verdict";$("#verdict").textContent=r.verdict.toUpperCase();
+  $("#verdict").className="big "+(r.verdict==="you win"?"win":r.verdict==="you lose"?"lose":"");
+  $("#tdetail").textContent=`Give ${money(r.give_total)} · Get ${money(r.get_total)} · Diff ${money(Math.abs(r.difference))}`}
+
+if("serviceWorker"in navigator)navigator.serviceWorker.register("/sw.js");
+metaP.then(()=>startCam());
+</script></body></html>

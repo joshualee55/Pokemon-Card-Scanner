@@ -1,0 +1,34 @@
+CARD TRACKER - WINDOWS GUIDE (no coding needed)
+================================================
+
+STEP 1 - Install Python (one time)
+  Go to https://www.python.org/downloads/release/python-3129/ , scroll to "Files" and download
+  "Windows installer (64-bit)". Use version 3.12 (newest versions can lack some packages). Run it.
+  IMPORTANT: tick the box "Add python.exe to PATH" on the first screen.
+
+STEP 2 - Unzip this folder somewhere easy (e.g. Documents\card-tracker).
+  Right-click the zip > Extract All.
+
+STEP 3 - Double-click  setup.bat  (one time, takes a few minutes).
+  It installs everything. Wait for "Done!".
+
+STEP 3.5 - Try it at home
+  Double-click  start.bat , then open  http://localhost:8000  in your browser.
+  (Use "Upload" on the Scan tab to test with a photo of a card.)
+
+STEP 4 - Use it on your phone while out (needs your PC turned on and online)
+  a) Install the free tunnel tool (one time): press the Windows key, type  cmd , Enter, then paste:
+        winget install Cloudflare.cloudflared
+     Close and reopen the window afterwards.
+  b) Double-click  start_online.bat , choose a password.
+  c) It prints a web address ending in  trycloudflare.com . Open it on your phone.
+     Sign in (username: anything, password: yours).
+  d) On the phone browser menu choose "Add to Home Screen" to install it like an app.
+  Note: the address changes each time you start it. Your collection is saved on your PC.
+
+MORE CARDS
+  This folder includes about 5,000 cards. Double-click  update_catalog.bat  to download the rest
+  (a few hours; you can close it and re-run later - it continues).
+
+IF SOMETHING GOES WRONG
+  Copy the red error text and send it to me.
