@@ -1,0 +1,55 @@
+CARD TRACKER - WINDOWS GUIDE (no coding needed)
+================================================
+
+STEP 1 - Install Python (one time)
+  Go to https://www.python.org/downloads/release/python-3129/ , scroll to "Files" and download
+  "Windows installer (64-bit)". Use version 3.12 (newest versions can lack some packages). Run it.
+  IMPORTANT: tick the box "Add python.exe to PATH" on the first screen.
+
+STEP 2 - Unzip this folder somewhere easy (e.g. Documents\card-tracker).
+  Right-click the zip > Extract All.
+
+STEP 3 - Double-click  setup.bat  (one time, takes a few minutes).
+  It installs everything. Wait for "Done!".
+
+STEP 3.5 - Try it at home
+  Double-click  start.bat , then open  http://localhost:8000  in your browser.
+  FIRST TIME: click "New here? Create an account" and make YOUR account before anyone else does.
+  (Your first account automatically gets any cards you saved before accounts existed.)
+  Then use "Upload" on the Scan tab to test with a photo of a card.
+
+STEP 4 - Use it on your phone while out (needs your PC turned on and online)
+  a) Install the free tunnel tool (one time): press the Windows key, type  cmd , Enter, then paste:
+        winget install Cloudflare.cloudflared
+     Close and reopen the window afterwards.
+  b) Double-click  start_online.bat , make up an INVITE CODE (letters/numbers).
+  c) It prints a web address ending in  trycloudflare.com . Open it on your phone.
+  d) Sign in with your account. Add to Home Screen from the browser menu.
+  e) To let a friend in (up to 10 accounts total): send them the web address AND the invite code.
+     They tap "Create an account", pick a username + password. Their cards are private to them.
+  Note: the address changes each time you start it. Keep both black windows open.
+
+FORGOT PASSWORD
+  Double-click  reset_password.bat , type the person's username, choose a new password for them,
+  and tell it to them. (To see all accounts: it lists them first.)
+
+VARIANTS (Holofoil, Reverse Holofoil, Normal, 1st Edition...)
+  Many cards have several versions with different prices. When you add a card, pick the version you own;
+  its price, chart and your collection value all use that version. You can change it later with Edit.
+  Cards you saved earlier are counted as the card's standard version (Normal, else Holofoil) until you
+  change them - check your Edit buttons.
+
+PRICE CHARTS
+  Tap any card (in your collection, scan results or search) to see its price chart.
+  The Collection tab shows your whole collection's value over time.
+  IMPORTANT: the free price source only updates prices every few weeks (the latest it has right now
+  is from mid-October), so a chart only gets a new point when the source publishes new prices.
+  Each point is dated with the date the SOURCE gave, never faked. Expect short charts at first.
+  While the app is running it checks prices for your cards about twice a day, or tap "Refresh prices".
+
+MORE CARDS
+  This folder includes about 5,000 cards. Double-click  update_catalog.bat  to download the rest
+  (a few hours; you can close it and re-run later - it continues).
+
+IF SOMETHING GOES WRONG
+  Copy the red error text and send it to me.

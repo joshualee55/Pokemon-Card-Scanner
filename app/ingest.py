@@ -5,15 +5,11 @@ from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
 from .db import conn
 from .matcher import fingerprint, to_blob, embed_many
+from .prices import best_price, day_of, record_variants
 
 API = "https://api.pokemontcg.io/v2/cards"
 PAGE = 25   # deep pages 500/502 with larger sizes
 HDR = {"X-Api-Key": os.environ["POKEMONTCG_API_KEY"]} if os.environ.get("POKEMONTCG_API_KEY") else {}
-
-def best_price(tcg):
-    p = (tcg or {}).get("prices") or {}
-    vals = [v.get("market") for v in p.values() if v.get("market")]
-    return max(vals) if vals else None
 
 def load_img(url):
     for i in range(3):
@@ -46,8 +42,10 @@ def main(limit=None):
         known = {r[0] for r in db.execute("SELECT id FROM cards WHERE emb IS NOT NULL")}
         for c in data:                                       # always refresh prices
             if c["id"] in known:
-                db.execute("UPDATE cards SET market=?, prices_json=? WHERE id=?", (
-                    best_price(c.get("tcgplayer")), json.dumps((c.get("tcgplayer") or {}).get("prices")), c["id"]))
+                m, d = best_price(c.get("tcgplayer")), day_of(c.get("tcgplayer"))
+                db.execute("UPDATE cards SET market=?, prices_json=?, price_day=? WHERE id=?", (
+                    m, json.dumps((c.get("tcgplayer") or {}).get("prices")), d, c["id"]))
+                record_variants(db, c["id"], c.get("tcgplayer"), d)
         todo = [c for c in data if c["id"] not in known]     # resumable: skip finished cards
         with ThreadPoolExecutor(12) as ex:
             imgs = list(ex.map(lambda c: load_img(c["images"]["small"]), todo))
@@ -55,10 +53,11 @@ def main(limit=None):
         embs = embed_many([im for _, im in pairs]) if pairs else []
         for (c, im), e in zip(pairs, embs):
             h = to_blob(fingerprint(im))
-            db.execute("INSERT OR REPLACE INTO cards VALUES(?,?,?,?,?,?,?,?,?,?)", (
+            m, d = best_price(c.get("tcgplayer")), day_of(c.get("tcgplayer"))
+            db.execute("INSERT OR REPLACE INTO cards(id,name,set_name,number,rarity,image_url,market,prices_json,hash,emb,price_day) VALUES(?,?,?,?,?,?,?,?,?,?,?)", (
                 c["id"], c["name"], c["set"]["name"], c["number"], c.get("rarity"),
-                c["images"]["small"], best_price(c.get("tcgplayer")),
-                json.dumps((c.get("tcgplayer") or {}).get("prices")), h, to_blob(e)))
+                c["images"]["small"], m, json.dumps((c.get("tcgplayer") or {}).get("prices")), h, to_blob(e), d))
+            record_variants(db, c["id"], c.get("tcgplayer"), d)
         db.commit(); done += len(data); print("ingested", done, flush=True)
         if limit and done >= limit: break
         page += 1
