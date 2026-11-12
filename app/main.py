@@ -12,22 +12,23 @@ from fastapi import APIRouter
 app = FastAPI(title="Card Tracker")
 INDEX = Index()
 
-# Optional password: set APP_PASSWORD to require a login (browser shows a sign-in box).
-import os, base64, secrets
+import os, sqlite3
 from fastapi import Request
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse
+from . import auth
+
+PUBLIC = {"/api/signup", "/api/login", "/api/logout", "/api/me", "/api/meta"}
+
 @app.middleware("http")
-async def password_gate(request: Request, call_next):
-    pw = os.environ.get("APP_PASSWORD")
-    if pw:
-        sent = request.headers.get("authorization", "")
-        ok = False
-        if sent.startswith("Basic "):
-            try: ok = secrets.compare_digest(base64.b64decode(sent[6:]).decode().partition(":")[2], pw)
-            except Exception: pass
-        if not ok:
-            return Response("Login required", 401, headers={"WWW-Authenticate": 'Basic realm="Card Tracker"'})
+async def auth_gate(request: Request, call_next):
+    tok = request.cookies.get("session")
+    request.state.user = auth.user_for_token(tok) if tok else None
+    path = request.url.path
+    if path.startswith("/api/") and path not in PUBLIC and not request.state.user:
+        return JSONResponse({"detail": "Please sign in"}, status_code=401)
     return await call_next(request)
+
+def uid(request: Request) -> int: return request.state.user["id"]
 api = APIRouter(prefix="/api")
 
 def card_dict(r, cond="NM"):
@@ -69,13 +70,15 @@ class Add(BaseModel):
     card_id: str; condition: str = "NM"; qty: int = 1
 
 @api.post("/collection")
-def add(a: Add):
-    check_cond(a.condition); db = conn(); db.execute("INSERT INTO collection(card_id,condition,qty) VALUES(?,?,?)", (a.card_id, a.condition, a.qty)); db.commit()
+def add(a: Add, request: Request):
+    check_cond(a.condition); db = conn()
+    if not db.execute("SELECT 1 FROM cards WHERE id=?", (a.card_id,)).fetchone(): raise HTTPException(404, "Unknown card")
+    db.execute("INSERT INTO collection(card_id,condition,qty,user_id) VALUES(?,?,?,?)", (a.card_id, a.condition, max(1, a.qty), uid(request))); db.commit()
     return {"ok": True}
 
 @api.get("/collection")
-def collection():
-    rows = conn().execute("SELECT c.*, k.id entry_id, k.condition cond, k.qty FROM collection k JOIN cards c ON c.id=k.card_id").fetchall()
+def collection(request: Request):
+    rows = conn().execute("SELECT c.*, k.id entry_id, k.condition cond, k.qty FROM collection k JOIN cards c ON c.id=k.card_id WHERE k.user_id=?", (uid(request),)).fetchall()
     items = [{**card_dict(r, r["cond"]), "entry_id": r["entry_id"], "condition": r["cond"], "qty": r["qty"]} for r in rows]
     return {"total_value": round(sum((i["adjusted_value"] or 0) * i["qty"] for i in items), 2), "items": items}
 
@@ -86,15 +89,57 @@ def check_cond(c):
     if c is not None and c not in MULT: raise HTTPException(422, f"condition must be one of {list(MULT)}")
 
 @api.patch("/collection/{entry_id}")
-def edit(entry_id: int, e: Edit):
-    check_cond(e.condition); db = conn()
-    if e.condition: db.execute("UPDATE collection SET condition=? WHERE id=?", (e.condition, entry_id))
-    if e.qty: db.execute("UPDATE collection SET qty=? WHERE id=?", (max(1, e.qty), entry_id))
+def edit(entry_id: int, e: Edit, request: Request):
+    check_cond(e.condition); db = conn(); me_ = uid(request)
+    if not db.execute("SELECT 1 FROM collection WHERE id=? AND user_id=?", (entry_id, me_)).fetchone(): raise HTTPException(404, "Not found")
+    if e.condition: db.execute("UPDATE collection SET condition=? WHERE id=? AND user_id=?", (e.condition, entry_id, me_))
+    if e.qty: db.execute("UPDATE collection SET qty=? WHERE id=? AND user_id=?", (max(1, e.qty), entry_id, me_))
     db.commit(); return {"ok": True}
 
 @api.delete("/collection/{entry_id}")
-def remove(entry_id: int):
-    db = conn(); db.execute("DELETE FROM collection WHERE id=?", (entry_id,)); db.commit(); return {"ok": True}
+def remove(entry_id: int, request: Request):
+    db = conn(); db.execute("DELETE FROM collection WHERE id=? AND user_id=?", (entry_id, uid(request))); db.commit(); return {"ok": True}
+
+class Creds(BaseModel):
+    username: str; password: str; invite: str = ""
+
+def _client(request): return (request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "?"))
+
+def _cookie(request, resp, token):
+    https = request.headers.get("x-forwarded-proto") == "https" or request.url.scheme == "https"
+    resp.set_cookie("session", token, httponly=True, samesite="lax", secure=https, max_age=auth.SESSION_DAYS * 86400)
+
+@api.post("/signup")
+def signup(c: Creds, request: Request):
+    code = os.environ.get("SIGNUP_CODE")
+    if code and c.invite.strip() != code: raise HTTPException(403, "Wrong invite code")
+    if auth.throttled("signup:" + _client(request)): raise HTTPException(429, "Too many attempts, try later")
+    if (e := auth.check_new(c.username, c.password)): raise HTTPException(422, e)
+    if auth.user_count() >= auth.MAX_USERS: raise HTTPException(403, "Sorry, this app is full")
+    auth.note_fail("signup:" + _client(request))          # also caps signup spam
+    try: user_id = auth.create_user(c.username, c.password)
+    except sqlite3.IntegrityError: raise HTTPException(409, "That username is taken")
+    resp = JSONResponse({"user": {"id": user_id, "username": c.username}})
+    _cookie(request, resp, auth.new_session(user_id)); return resp
+
+@api.post("/login")
+def login(c: Creds, request: Request):
+    key = "login:" + _client(request) + ":" + c.username.lower()
+    if auth.throttled(key): raise HTTPException(429, "Too many attempts, wait 15 minutes")
+    user_id = auth.login(c.username, c.password)
+    if user_id is None:
+        auth.note_fail(key); raise HTTPException(401, "Wrong username or password")
+    resp = JSONResponse({"user": {"id": user_id, "username": c.username}})
+    _cookie(request, resp, auth.new_session(user_id)); return resp
+
+@api.post("/logout")
+def logout(request: Request):
+    tok = request.cookies.get("session")
+    if tok: auth.end_session(tok)
+    resp = JSONResponse({"ok": True}); resp.delete_cookie("session"); return resp
+
+@api.get("/me")
+def me(request: Request): return {"user": request.state.user}
 
 @api.get("/meta")
 def meta(): return {"conditions": [{"code": k, "multiplier": v, "label": L} for (k, v), L in zip(MULT.items(),

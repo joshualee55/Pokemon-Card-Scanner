@@ -23,8 +23,20 @@ video{width:100%;display:block}.guide{position:absolute;left:50%;top:50%;transfo
 .ticks{display:flex;justify-content:space-between;font-size:12px;color:var(--mut)}.ticks span.sug{color:var(--ac);font-weight:700}
 .panel{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:8px}
 .panel .row{margin-top:8px}.qty{width:70px}.cl{font-weight:700}.sm{padding:4px 8px;font-size:13px}
-</style></head><body>
-<header>🃏 Card Tracker</header><main>
+.noauth main,.noauth nav{display:none}#auth{display:none;max-width:420px;margin:8vh auto;padding:0 16px}.noauth #auth{display:block}
+header{display:flex;align-items:center;justify-content:space-between}#who{font-size:13px;font-weight:400;color:var(--mut)}#who button{margin-left:8px}
+#auth input{margin:6px 0}.err{color:var(--bad);min-height:20px;font-size:14px}.link{background:none;border:0;color:var(--ac);padding:8px 0;font-size:14px}
+</style></head><body class="noauth">
+<header><span>🃏 Card Tracker</span><span id="who"></span></header>
+<div id="auth"><div class="card"><h2 id="atitle" style="margin-top:0">Sign in</h2>
+ <input id="au" placeholder="Username" autocomplete="username" autocapitalize="none">
+ <input id="ap" type="password" placeholder="Password" autocomplete="current-password">
+ <input id="ai" placeholder="Invite code (from the app owner)" style="display:none" autocapitalize="none">
+ <div class="err" id="aerr"></div>
+ <button class="p" id="ago" style="width:100%">Sign in</button>
+ <button class="link" id="aswitch">New here? Create an account</button>
+ <div class="mut" id="ahint" style="display:none">Password: at least 8 characters. Forgot it later? Ask the app owner to reset it.</div></div></div>
+<main>
 
 <section id="scan" class="tabs on">
   <div class="cam"><video id="vid" playsinline muted autoplay></video><div class="guide"></div></div>
@@ -56,7 +68,8 @@ function slider(id,val,sug){return `<div class="sl"><input type="range" id="${id
  <div class="mut"><span class="cl" id="${id}-l">${lbl(val)}</span>${sug?` · suggested: ${sug}`:""}</div></div>`}
 const sliderVal=id=>CONDS[+$("#"+id).value];
 function bindSlider(id,fn){const el=$("#"+id);el.oninput=()=>{$("#"+id+"-l").textContent=lbl(sliderVal(id));fn&&fn(sliderVal(id))}}
-const api=(p,o)=>fetch("/api"+p,o).then(r=>{if(!r.ok)throw new Error(r.status);return r.json()});
+const api=(p,o)=>fetch("/api"+p,o).then(async r=>{if(!r.ok){let m=r.status;try{const j=await r.json();m=typeof j.detail==="string"?j.detail:(j.detail&&j.detail[0]&&j.detail[0].msg)||m}catch(e){}
+  if(r.status===401&&p!=="/login"&&ME){ME=null;showAuth()}throw new Error(m)}return r.json()});
 const post=(p,b)=>api(p,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(b)});
 const metaP=api("/meta").then(m=>{CONDS=m.conditions.map(c=>c.code);m.conditions.forEach(c=>MULT[c.code]=c)});
 let tradeSel={give:[],get:[]}, addTarget="coll";
@@ -135,6 +148,21 @@ async function calcTrade(){const {give,get}=tradeSel;if(!give.length||!get.lengt
   $("#verdict").className="big "+(r.verdict==="you win"?"win":r.verdict==="you lose"?"lose":"");
   $("#tdetail").textContent=`Give ${money(r.give_total)} · Get ${money(r.get_total)} · Diff ${money(Math.abs(r.difference))}`}
 
+// ---- accounts ----
+let ME=null,signup=false;
+function showAuth(){stopCam();document.body.classList.add("noauth");$("#who").textContent=""}
+function showApp(u){ME=u;document.body.classList.remove("noauth");$("#who").innerHTML=`${u.username}<button class="s sm" id="lo">Sign out</button>`;
+  $("#lo").onclick=async()=>{await post("/logout",{}).catch(()=>{});location.reload()};
+  tradeSel={give:[],get:[]};document.querySelector('nav [data-t=scan]').click()}
+function setMode(su){signup=su;$("#atitle").textContent=su?"Create account":"Sign in";$("#ago").textContent=su?"Create account":"Sign in";
+  $("#ai").style.display=$("#ahint").style.display=su?"":"none";$("#ap").autocomplete=su?"new-password":"current-password";
+  $("#aswitch").textContent=su?"Already have an account? Sign in":"New here? Create an account";$("#aerr").textContent=""}
+$("#aswitch").onclick=()=>setMode(!signup);
+async function submitAuth(){const b={username:$("#au").value.trim(),password:$("#ap").value,invite:$("#ai").value};$("#aerr").textContent="";$("#ago").disabled=true;
+  try{const r=await post(signup?"/signup":"/login",b);$("#ap").value="";showApp(r.user)}catch(e){$("#aerr").textContent=e.message}$("#ago").disabled=false}
+$("#ago").onclick=submitAuth;[$("#au"),$("#ap"),$("#ai")].forEach(el=>el.addEventListener("keydown",e=>{if(e.key==="Enter")submitAuth()}));
+async function boot(){const r=await api("/me").catch(()=>({user:null}));r.user?showApp(r.user):showAuth()}
+
 if("serviceWorker"in navigator)navigator.serviceWorker.register("/sw.js");
-metaP.then(()=>startCam());
+metaP.then(boot);
 </script></body></html>

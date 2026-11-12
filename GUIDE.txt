@@ -14,17 +14,24 @@ STEP 3 - Double-click  setup.bat  (one time, takes a few minutes).
 
 STEP 3.5 - Try it at home
   Double-click  start.bat , then open  http://localhost:8000  in your browser.
-  (Use "Upload" on the Scan tab to test with a photo of a card.)
+  FIRST TIME: click "New here? Create an account" and make YOUR account before anyone else does.
+  (Your first account automatically gets any cards you saved before accounts existed.)
+  Then use "Upload" on the Scan tab to test with a photo of a card.
 
 STEP 4 - Use it on your phone while out (needs your PC turned on and online)
   a) Install the free tunnel tool (one time): press the Windows key, type  cmd , Enter, then paste:
         winget install Cloudflare.cloudflared
      Close and reopen the window afterwards.
-  b) Double-click  start_online.bat , choose a password.
+  b) Double-click  start_online.bat , make up an INVITE CODE (letters/numbers).
   c) It prints a web address ending in  trycloudflare.com . Open it on your phone.
-     Sign in (username: anything, password: yours).
-  d) On the phone browser menu choose "Add to Home Screen" to install it like an app.
-  Note: the address changes each time you start it. Your collection is saved on your PC.
+  d) Sign in with your account. Add to Home Screen from the browser menu.
+  e) To let a friend in (up to 10 accounts total): send them the web address AND the invite code.
+     They tap "Create an account", pick a username + password. Their cards are private to them.
+  Note: the address changes each time you start it. Keep both black windows open.
+
+FORGOT PASSWORD
+  Double-click  reset_password.bat , type the person's username, choose a new password for them,
+  and tell it to them. (To see all accounts: it lists them first.)
 
 MORE CARDS
   This folder includes about 5,000 cards. Double-click  update_catalog.bat  to download the rest

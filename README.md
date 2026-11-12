@@ -16,6 +16,8 @@ or deploy to Fly/Render), then "Add to Home Screen".
 
 Pipeline: photo -> `rectify` (find card outline, flatten) -> CLIP embedding -> cosine search over all cards.
 Condition is chosen by the user with a slider; the app only suggests one.
+Accounts: username + password, each user has a private collection (max 10 by default, `MAX_USERS`).
+Set `SIGNUP_CODE` to require an invite code to sign up. Owner tools: `python -m app.admin list|reset|delete`.
 `python eval_matcher.py 100` benchmarks matching on synthetic degraded photos.
 
 Windows users: see `GUIDE.txt` for a step-by-step walkthrough.
