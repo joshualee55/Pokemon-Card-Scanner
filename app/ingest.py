@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
 from .db import conn
 from .matcher import fingerprint, to_blob, embed_many
-from .prices import best_price, day_of, record
+from .prices import best_price, day_of, record_variants
 
 API = "https://api.pokemontcg.io/v2/cards"
 PAGE = 25   # deep pages 500/502 with larger sizes
@@ -45,7 +45,7 @@ def main(limit=None):
                 m, d = best_price(c.get("tcgplayer")), day_of(c.get("tcgplayer"))
                 db.execute("UPDATE cards SET market=?, prices_json=?, price_day=? WHERE id=?", (
                     m, json.dumps((c.get("tcgplayer") or {}).get("prices")), d, c["id"]))
-                record(db, c["id"], m, d)
+                record_variants(db, c["id"], c.get("tcgplayer"), d)
         todo = [c for c in data if c["id"] not in known]     # resumable: skip finished cards
         with ThreadPoolExecutor(12) as ex:
             imgs = list(ex.map(lambda c: load_img(c["images"]["small"]), todo))
@@ -57,7 +57,7 @@ def main(limit=None):
             db.execute("INSERT OR REPLACE INTO cards(id,name,set_name,number,rarity,image_url,market,prices_json,hash,emb,price_day) VALUES(?,?,?,?,?,?,?,?,?,?,?)", (
                 c["id"], c["name"], c["set"]["name"], c["number"], c.get("rarity"),
                 c["images"]["small"], m, json.dumps((c.get("tcgplayer") or {}).get("prices")), h, to_blob(e), d))
-            record(db, c["id"], m, d)
+            record_variants(db, c["id"], c.get("tcgplayer"), d)
         db.commit(); done += len(data); print("ingested", done, flush=True)
         if limit and done >= limit: break
         page += 1

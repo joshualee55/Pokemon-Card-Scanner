@@ -6,7 +6,7 @@ from .db import conn
 from .matcher import Index
 from .condition import estimate, MULT
 
-import os, pathlib
+import os, json, pathlib
 from fastapi.staticfiles import StaticFiles
 from fastapi import APIRouter
 app = FastAPI(title="Card Tracker")
@@ -35,10 +35,22 @@ async def auth_gate(request: Request, call_next):
 def uid(request: Request) -> int: return request.state.user["id"]
 api = APIRouter(prefix="/api")
 
-def card_dict(r, cond="NM"):
-    m = r["market"]
+def card_vp(r):
+    """{variant: market price} for a card row."""
+    try: return prices.vp_from_prices(json.loads(r["prices_json"]) if r["prices_json"] else None)
+    except ValueError: return {}
+
+def resolve_variant(r, variant=None):
+    vp = card_vp(r)
+    return variant if variant in vp else prices.default_variant(vp)
+
+def card_dict(r, cond="NM", variant=None):
+    vp = card_vp(r); v = resolve_variant(r, variant)
+    m = vp[v] if v else None
     return {"id": r["id"], "name": r["name"], "set": r["set_name"], "number": r["number"],
             "rarity": r["rarity"], "image": r["image_url"], "market": m,
+            "variant": v, "variant_label": prices.label(v) if v else None,
+            "variants": [{"code": k, "label": prices.label(k), "market": vp[k]} for k in prices.ordered(vp)],
             "adjusted_value": round(m * MULT[cond], 2) if m else None}
 
 IMG_DIR = pathlib.Path(__file__).parent.parent / "data" / "images"
@@ -71,23 +83,30 @@ def search(q: str, limit: int = 20):
     return [card_dict(r) for r in rows]
 
 class Add(BaseModel):
-    card_id: str; condition: str = "NM"; qty: int = 1
+    card_id: str; condition: str = "NM"; qty: int = 1; variant: str | None = None
+
+def check_variant(row, variant):
+    if variant is not None and card_vp(row) and variant not in card_vp(row):
+        raise HTTPException(422, f"variant must be one of {list(card_vp(row))}")
 
 @api.post("/collection")
 def add(a: Add, request: Request):
     check_cond(a.condition); db = conn()
-    if not db.execute("SELECT 1 FROM cards WHERE id=?", (a.card_id,)).fetchone(): raise HTTPException(404, "Unknown card")
-    db.execute("INSERT INTO collection(card_id,condition,qty,user_id) VALUES(?,?,?,?)", (a.card_id, a.condition, max(1, a.qty), uid(request))); db.commit()
+    row = db.execute("SELECT * FROM cards WHERE id=?", (a.card_id,)).fetchone()
+    if not row: raise HTTPException(404, "Unknown card")
+    check_variant(row, a.variant)
+    db.execute("INSERT INTO collection(card_id,condition,qty,user_id,variant) VALUES(?,?,?,?,?)",
+               (a.card_id, a.condition, max(1, a.qty), uid(request), resolve_variant(row, a.variant))); db.commit()
     return {"ok": True}
 
 @api.get("/collection")
 def collection(request: Request):
-    rows = conn().execute("SELECT c.*, k.id entry_id, k.condition cond, k.qty FROM collection k JOIN cards c ON c.id=k.card_id WHERE k.user_id=?", (uid(request),)).fetchall()
-    items = [{**card_dict(r, r["cond"]), "entry_id": r["entry_id"], "condition": r["cond"], "qty": r["qty"]} for r in rows]
+    rows = conn().execute("SELECT c.*, k.id entry_id, k.condition cond, k.qty, k.variant owned_variant FROM collection k JOIN cards c ON c.id=k.card_id WHERE k.user_id=?", (uid(request),)).fetchall()
+    items = [{**card_dict(r, r["cond"], r["owned_variant"]), "entry_id": r["entry_id"], "condition": r["cond"], "qty": r["qty"]} for r in rows]
     return {"total_value": round(sum((i["adjusted_value"] or 0) * i["qty"] for i in items), 2), "items": items}
 
 class Edit(BaseModel):
-    condition: str | None = None; qty: int | None = None
+    condition: str | None = None; qty: int | None = None; variant: str | None = None
 
 def check_cond(c):
     if c is not None and c not in MULT: raise HTTPException(422, f"condition must be one of {list(MULT)}")
@@ -95,7 +114,10 @@ def check_cond(c):
 @api.patch("/collection/{entry_id}")
 def edit(entry_id: int, e: Edit, request: Request):
     check_cond(e.condition); db = conn(); me_ = uid(request)
-    if not db.execute("SELECT 1 FROM collection WHERE id=? AND user_id=?", (entry_id, me_)).fetchone(): raise HTTPException(404, "Not found")
+    own = db.execute("SELECT c.* FROM collection k JOIN cards c ON c.id=k.card_id WHERE k.id=? AND k.user_id=?", (entry_id, me_)).fetchone()
+    if not own: raise HTTPException(404, "Not found")
+    check_variant(own, e.variant)
+    if e.variant: db.execute("UPDATE collection SET variant=? WHERE id=? AND user_id=?", (e.variant, entry_id, me_))
     if e.condition: db.execute("UPDATE collection SET condition=? WHERE id=? AND user_id=?", (e.condition, entry_id, me_))
     if e.qty: db.execute("UPDATE collection SET qty=? WHERE id=? AND user_id=?", (max(1, e.qty), entry_id, me_))
     db.commit(); return {"ok": True}
@@ -149,30 +171,34 @@ def me(request: Request): return {"user": request.state.user}
 def meta(): return {"conditions": [{"code": k, "multiplier": v, "label": L} for (k, v), L in zip(MULT.items(),
     ["Near Mint", "Lightly Played", "Moderately Played", "Heavily Played", "Damaged"])]}
 
-def _points(db, card_id):
+def _points(db, card_id, variant):
     return [dict(day=r["day"], market=r["market"]) for r in db.execute(
-        "SELECT day, market FROM price_history WHERE card_id=? ORDER BY day", (card_id,))]
+        "SELECT day, market FROM price_history WHERE card_id=? AND variant=? ORDER BY day", (card_id, variant))]
 
 @api.get("/card/{card_id}")
-def card_detail(card_id: str):
+def card_detail(card_id: str, variant: str | None = None):
     db = conn(); row = db.execute("SELECT * FROM cards WHERE id=?", (card_id,)).fetchone()
     if not row: raise HTTPException(404, "Unknown card")
     db.execute("INSERT OR IGNORE INTO tracked VALUES(?)", (card_id,)); db.commit()
-    if not _points(db, card_id):                      # first look: fetch a fresh price right now (short timeout)
-        prices.refresh([card_id], timeout=8, tries=1)
+    if not db.execute("SELECT 1 FROM price_history WHERE card_id=?", (card_id,)).fetchone():
+        prices.refresh([card_id], timeout=8, tries=1)      # first look: fetch a fresh price right now (short timeout)
         row = db.execute("SELECT * FROM cards WHERE id=?", (card_id,)).fetchone()
-    return {"card": {**card_dict(row), "price_day": row["price_day"]}, "points": _points(db, card_id)}
+    v = resolve_variant(row, variant)
+    return {"card": {**card_dict(row, "NM", v), "price_day": row["price_day"]}, "points": _points(db, card_id, v) if v else []}
 
 @api.get("/collection/history")
 def collection_history(request: Request):
-    """Value over time of the cards you own NOW (condition-adjusted). Starts on the first day every
+    """Value over time of the cards you own NOW (variant + condition adjusted). Starts on the first day every
     owned card has a price, so a newly added card never makes the line jump."""
     db = conn()
-    rows = db.execute("SELECT card_id, condition, SUM(qty) q FROM collection WHERE user_id=? GROUP BY card_id, condition", (uid(request),)).fetchall()
+    rows = db.execute("SELECT c.*, k.condition cond, k.variant owned_variant, SUM(k.qty) q FROM collection k JOIN cards c ON c.id=k.card_id "
+                      "WHERE k.user_id=? GROUP BY k.card_id, k.condition, k.variant", (uid(request),)).fetchall()
     series, counted = {}, 0
     for r in rows:
-        pts = _points(db, r["card_id"])
-        if pts: series[(r["card_id"], r["condition"])] = (pts, r["q"] * MULT[r["condition"]]); counted += 1
+        v = resolve_variant(r, r["owned_variant"]); pts = _points(db, r["id"], v) if v else []
+        if pts:
+            key = (r["id"], r["cond"], v); old = series.get(key, (pts, 0))[1]
+            series[key] = (pts, old + r["q"] * MULT[r["cond"]]); counted += 1
     if not series: return {"points": [], "counted": 0, "total": len(rows), "first_day": None}
     first = max(v[0][0]["day"] for v in series.values())
     days = sorted({p["day"] for v in series.values() for p in v[0]} | {first})
@@ -199,7 +225,7 @@ def prices_status():
     t = prices.get_meta("last_refresh"); return {"last_refresh": float(t) if t else None, "tracked": len(prices.tracked_ids())}
 
 class Side(BaseModel):
-    card_id: str; condition: str = "NM"; qty: int = 1
+    card_id: str; condition: str = "NM"; qty: int = 1; variant: str | None = None
 class Trade(BaseModel):
     give: list[Side]; get: list[Side]
 
@@ -211,8 +237,10 @@ def trade(t: Trade):
         for x in side:
             r = db.execute("SELECT * FROM cards WHERE id=?", (x.card_id,)).fetchone()
             if not r: raise HTTPException(404, x.card_id)
-            v = (r["market"] or 0) * MULT[x.condition] * x.qty; s += v
-            out.append({"name": r["name"], "condition": x.condition, "qty": x.qty, "value": round(v, 2)})
+            check_cond(x.condition); check_variant(r, x.variant)
+            cd = card_dict(r, x.condition, x.variant)
+            v = (cd["market"] or 0) * MULT[x.condition] * x.qty; s += v
+            out.append({"name": r["name"], "variant": cd["variant_label"], "condition": x.condition, "qty": x.qty, "value": round(v, 2)})
         return out, round(s, 2)
     g, gt = total(t.give); r_, rt = total(t.get)
     diff = round(rt - gt, 2)

@@ -16,9 +16,31 @@ def day_of(tcg):
     try: return datetime.datetime.strptime((tcg or {}).get("updatedAt", ""), "%Y/%m/%d").strftime("%Y-%m-%d")
     except ValueError: return None
 
-def record(db, card_id, market, day):
-    if market is not None and day:
-        db.execute("INSERT OR REPLACE INTO price_history VALUES(?,?,?)", (card_id, day, market))
+VARIANT_ORDER = ["normal", "holofoil", "unlimitedHolofoil", "1stEditionNormal", "1stEditionHolofoil", "reverseHolofoil"]
+LABELS = {"normal": "Normal", "holofoil": "Holofoil", "reverseHolofoil": "Reverse Holofoil",
+          "1stEditionHolofoil": "1st Edition Holofoil", "1stEditionNormal": "1st Edition Normal",
+          "unlimitedHolofoil": "Unlimited Holofoil", "unlimitedNormal": "Unlimited Normal"}
+
+def label(v):
+    return LABELS.get(v) or re.sub(r"(?<!^)(?=[A-Z])", " ", v or "").title()
+
+def vp_from_prices(prices):
+    """{variant: market price} from a tcgplayer 'prices' dict (variants with no market price are skipped)."""
+    return {k: v["market"] for k, v in (prices or {}).items() if isinstance(v, dict) and v.get("market")}
+
+def variant_prices(tcg): return vp_from_prices((tcg or {}).get("prices"))
+
+def ordered(vp):
+    return sorted(vp, key=lambda k: (VARIANT_ORDER.index(k) if k in VARIANT_ORDER else 99, k))
+
+def default_variant(vp):
+    o = ordered(vp); return o[0] if o else None
+
+def record_variants(db, card_id, tcg, day):
+    """One history point per variant, dated by the source."""
+    if not day: return
+    for v, m in variant_prices(tcg).items():
+        db.execute("INSERT OR REPLACE INTO price_history(card_id,variant,day,market) VALUES(?,?,?,?)", (card_id, v, day, m))
 
 def fetch(ids, timeout=30, tries=3):
     """{card_id: tcgplayer-block} for up to ~20 ids, or None if the API is down."""
@@ -46,7 +68,7 @@ def refresh(ids, timeout=30, tries=3):
                 if m is None: continue
                 db.execute("UPDATE cards SET market=?, prices_json=?, price_day=? WHERE id=?",
                            (m, json.dumps((tcg or {}).get("prices")), d, cid))
-                record(db, cid, m, d); n += 1
+                record_variants(db, cid, tcg, d); n += 1
         db.commit()
     finally: db.close()
     return n

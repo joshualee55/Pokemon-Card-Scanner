@@ -33,6 +33,12 @@ FORGOT PASSWORD
   Double-click  reset_password.bat , type the person's username, choose a new password for them,
   and tell it to them. (To see all accounts: it lists them first.)
 
+VARIANTS (Holofoil, Reverse Holofoil, Normal, 1st Edition...)
+  Many cards have several versions with different prices. When you add a card, pick the version you own;
+  its price, chart and your collection value all use that version. You can change it later with Edit.
+  Cards you saved earlier are counted as the card's standard version (Normal, else Holofoil) until you
+  change them - check your Edit buttons.
+
 PRICE CHARTS
   Tap any card (in your collection, scan results or search) to see its price chart.
   The Collection tab shows your whole collection's value over time.

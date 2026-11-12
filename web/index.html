@@ -95,7 +95,7 @@ document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   if(b.dataset.t==="coll")loadColl(); if(b.dataset.t==="trade")renderTrade();
   if(b.dataset.t==="scan")startCam(); else stopCam();
 });
-const cardRow=(c,extra="")=>`<div class="card row"><img src="${c.image}" loading="lazy" data-open="${c.id}" style="cursor:pointer"><div class="grow" data-open="${c.id}" style="cursor:pointer"><b>${c.name}</b><div class="mut">${c.set} · #${c.number} · ${c.rarity||""}</div><div class="price">${money(c.adjusted_value??c.market)}</div></div>${extra}</div>`;
+const cardRow=(c,extra="")=>`<div class="card row"><img src="${c.image}" loading="lazy" data-open="${c.id}" data-variant="${c.variant||""}" style="cursor:pointer"><div class="grow" data-open="${c.id}" data-variant="${c.variant||""}" style="cursor:pointer"><b>${c.name}</b><div class="mut">${c.set} · #${c.number} · ${c.rarity||""}${c.variant_label&&(c.variants||[]).length>1?` · <b style="color:var(--tx)">${c.variant_label}</b>`:""}</div><div class="price">${money(c.adjusted_value??c.market)}</div></div>${extra}</div>`;
 
 // camera
 let stream;
@@ -124,12 +124,16 @@ async function sendScan(blob){
     $("#scanout").querySelectorAll("button[data-i]").forEach(b=>b.onclick=()=>openAdd(r.matches[b.dataset.i],b.dataset.i,r.condition.condition));
   }catch(e){$("#scanout").innerHTML=`<div class="card">Scan failed (${e.message}). Has the catalogue been ingested?</div>`}}
 
+const vsel=(id,m,cur)=>(m.variants||[]).length>1?`<div class="sl"><label class="mut">Variant</label><select id="${id}" style="width:100%">${m.variants.map(v=>`<option value="${v.code}" ${v.code===cur?"selected":""}>${v.label} — ${money(v.market)}</option>`).join("")}</select></div>`:"";
+const vprice=(m,v)=>{const x=(m.variants||[]).find(z=>z.code===v);return x?x.market:m.market};
 function openAdd(m,i,sug){const box=$("#p"+i);if(box.innerHTML){box.innerHTML="";return}
-  box.innerHTML=`<div class="panel"><b>Card condition</b>${slider("cs"+i,"NM",sug)}
+  box.innerHTML=`<div class="panel">${vsel("vs"+i,m,m.variant)}<b>Card condition</b>${slider("cs"+i,"NM",sug)}
    <div class="row"><span class="mut">Value</span><b class="price" id="pv${i}">${money(m.market)}</b><span class="grow"></span>
    Qty <input class="qty" id="q${i}" type="number" min="1" value="1"><button class="p" id="sv${i}">Save</button></div></div>`;
-  const upd=c=>$("#pv"+i).textContent=money(m.market==null?null:m.market*MULT[c].multiplier);bindSlider("cs"+i,upd);
-  $("#sv"+i).onclick=async()=>{await post("/collection",{card_id:m.id,condition:sliderVal("cs"+i),qty:+$("#q"+i).value||1});box.innerHTML=`<div class="mut" style="padding:6px">✓ Added to collection</div>`}}
+  const cv=()=>$("#vs"+i)?$("#vs"+i).value:m.variant;
+  const upd=()=>{const pr=vprice(m,cv());$("#pv"+i).textContent=money(pr==null?null:pr*MULT[sliderVal("cs"+i)].multiplier)};
+  bindSlider("cs"+i,upd);if($("#vs"+i))$("#vs"+i).onchange=upd;
+  $("#sv"+i).onclick=async()=>{await post("/collection",{card_id:m.id,condition:sliderVal("cs"+i),qty:+$("#q"+i).value||1,variant:cv()||null});box.innerHTML=`<div class="mut" style="padding:6px">✓ Added to collection</div>`}}
 
 // collection
 async function loadColl(){const r=await api("/collection");$("#total").textContent=money(r.total_value);
@@ -141,9 +145,9 @@ async function loadColl(){const r=await api("/collection");$("#total").textConte
     const b=$("#rp");if(b)b.onclick=async()=>{b.textContent="Refreshing…";try{await post("/prices/refresh",{});setTimeout(loadColl,8000)}catch(e){b.textContent=e.message}}}).catch(()=>{});
   $("#items").innerHTML=r.items.map((i,n)=>`<div>`+cardRow(i,`<div class="mut" style="text-align:right">${i.condition} ×${i.qty}<br><button class="s sm" data-e="${n}">Edit</button></div>`)+`<div id="ep${n}"></div></div>`).join("")||`<p class="mut">No cards yet — scan one.</p>`;
   $("#items").querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>{const it=r.items[b.dataset.e],n=b.dataset.e,box=$("#ep"+n);if(box.innerHTML){box.innerHTML="";return}
-    box.innerHTML=`<div class="panel">${slider("ce"+n,it.condition)}<div class="row">Qty <input class="qty" id="eq${n}" type="number" min="1" value="${it.qty}"><span class="grow"></span>
+    box.innerHTML=`<div class="panel">${vsel("ev"+n,it,it.variant)}${slider("ce"+n,it.condition)}<div class="row">Qty <input class="qty" id="eq${n}" type="number" min="1" value="${it.qty}"><span class="grow"></span>
       <button class="s" id="rm${n}">Remove</button><button class="p" id="es${n}">Save</button></div></div>`;bindSlider("ce"+n);
-    $("#es"+n).onclick=async()=>{await api("/collection/"+it.entry_id,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({condition:sliderVal("ce"+n),qty:+$("#eq"+n).value||1})});loadColl()};
+    $("#es"+n).onclick=async()=>{await api("/collection/"+it.entry_id,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({condition:sliderVal("ce"+n),qty:+$("#eq"+n).value||1,variant:$("#ev"+n)?$("#ev"+n).value:null})});loadColl()};
     $("#rm"+n).onclick=async()=>{if(confirm("Remove from collection?")){await api("/collection/"+it.entry_id,{method:"DELETE"});loadColl()}}})}
 
 // search (also used to add to collection or trade)
@@ -151,15 +155,15 @@ let t;$("#q").oninput=()=>{clearTimeout(t);t=setTimeout(async()=>{const q=$("#q"
   const r=await api("/search?q="+encodeURIComponent(q));
   $("#results").innerHTML=r.map((c,i)=>cardRow(c,`<div><button class="s" data-a="coll" data-i="${i}">+Coll</button><br><br><button class="s" data-a="give" data-i="${i}">Give</button> <button class="s" data-a="get" data-i="${i}">Get</button></div>`)).join("");
   $("#results").querySelectorAll("button").forEach(b=>b.onclick=async()=>{const c=r[b.dataset.i],a=b.dataset.a;
-    if(a==="coll")await post("/collection",{card_id:c.id});else tradeSel[a].push({card_id:c.id,condition:"NM",qty:1,name:c.name});
+    if(a==="coll")await post("/collection",{card_id:c.id});else tradeSel[a].push({card_id:c.id,condition:"NM",qty:1,name:c.name,variant:c.variant,variants:c.variants});
     b.textContent="✓"})},300)};
 
 // trade
 function renderTrade(){
   const side=(k,l)=>`<h2>${l}</h2>`+(tradeSel[k].map((x,i)=>`<div class="card"><div class="row"><div class="grow"><b>${x.name}</b></div>
-    <button class="s sm" data-rm="${k}" data-i="${i}">✕</button></div>${slider(`t${k}${i}`,x.condition)}</div>`).join("")||`<div class="mut">Use Search → Give / Get</div>`);
+    <button class="s sm" data-rm="${k}" data-i="${i}">✕</button></div>${vsel(`tv${k}${i}`,x,x.variant)}${slider(`t${k}${i}`,x.condition)}</div>`).join("")||`<div class="mut">Use Search → Give / Get</div>`);
   $("#tradeside").innerHTML=side("give","You give")+side("get","You get");
-  ["give","get"].forEach(k=>tradeSel[k].forEach((x,i)=>bindSlider(`t${k}${i}`,c=>{x.condition=c;calcTrade()})));
+  ["give","get"].forEach(k=>tradeSel[k].forEach((x,i)=>{bindSlider(`t${k}${i}`,c=>{x.condition=c;calcTrade()});const v=$(`#tv${k}${i}`);if(v)v.onchange=()=>{x.variant=v.value;calcTrade()}}));
   $("#tradeside").querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{tradeSel[b.dataset.rm].splice(b.dataset.i,1);renderTrade()});
   calcTrade()}
 async function calcTrade(){const {give,get}=tradeSel;if(!give.length||!get.length){$("#verdict").textContent="—";return}
@@ -204,17 +208,19 @@ function lineChart(el,pts,{fmt=money}={}){
 }
 function rangeChart(chipsEl,chartEl,allPts,def=0){let cur=def;const draw=()=>{chipsEl.innerHTML=chipsHTML("",cur);
     chipsEl.querySelectorAll("button").forEach(b=>b.onclick=()=>{cur=+b.dataset.r;draw()});lineChart(chartEl,inRange(allPts,cur))};draw()}
-async function openCard(id){const sh=$("#sheet"),box=$("#sbox");sh.classList.add("on");box.innerHTML=`<div class="mut">Loading…</div>`;
-  try{const r=await api("/card/"+encodeURIComponent(id)),c=r.card,pts=r.points.map(p=>({day:p.day,v:p.market}));
+async function openCard(id,variant){const sh=$("#sheet"),box=$("#sbox");sh.classList.add("on");box.innerHTML=`<div class="mut">Loading…</div>`;
+  try{const r=await api("/card/"+encodeURIComponent(id)+(variant?"?variant="+encodeURIComponent(variant):"")),c=r.card,pts=r.points.map(p=>({day:p.day,v:p.market}));
     box.innerHTML=`<div class="row" style="align-items:flex-start"><img class="big" src="${c.image}"><div class="grow"><b style="font-size:18px">${c.name}</b>
       <div class="mut">${c.set} · #${c.number}${c.rarity?" · "+c.rarity:""}</div><div class="big price">${money(c.market)}</div>
-      <div class="mut">${c.price_day?"Source price from "+dfmt(c.price_day,1):"Price date unknown"}</div></div><button class="s" id="sx">✕</button></div>
+      <div class="mut">${c.variant_label||""}${c.price_day?" · price from "+dfmt(c.price_day,1):""}</div></div><button class="s" id="sx">✕</button></div>
+      ${(c.variants||[]).length>1?`<div class="chips" id="vchips" style="margin-top:12px;flex-wrap:wrap">${c.variants.map(v=>`<button data-v="${v.code}" class="${v.code===c.variant?"on":""}">${v.label} ${money(v.market)}</button>`).join("")}</div>`:""}
       <div class="row" style="margin-top:14px"><b class="grow">Price over time</b><div class="chips" id="schips"></div></div><div id="schart"></div>
-      <div class="mut" style="margin-top:8px">Uses the highest variant's market price (e.g. reverse holo if that's higher). Points are added whenever the price source updates, so history builds up over time.</div>`;
-    $("#sx").onclick=()=>sh.classList.remove("on");rangeChart($("#schips"),$("#schart"),pts)
+      <div class="mut" style="margin-top:8px">Each variant has its own price and history. Points are added whenever the price source updates, so history builds up over time.</div>`;
+    $("#sx").onclick=()=>sh.classList.remove("on");rangeChart($("#schips"),$("#schart"),pts);
+    document.querySelectorAll("#vchips button").forEach(b=>b.onclick=()=>openCard(id,b.dataset.v))
   }catch(e){box.innerHTML=`<div class="card">Couldn't load that card (${e.message}). <button class="s" id="sx">Close</button></div>`;$("#sx").onclick=()=>sh.classList.remove("on")}}
 $("#sheet").addEventListener("click",e=>{if(e.target.id==="sheet")$("#sheet").classList.remove("on")});
-document.addEventListener("click",e=>{const o=e.target.closest("[data-open]");if(o)openCard(o.dataset.open)});
+document.addEventListener("click",e=>{const o=e.target.closest("[data-open]");if(o)openCard(o.dataset.open,o.dataset.variant||undefined)});
 
 // ---- accounts ----
 let ME=null,signup=false;
