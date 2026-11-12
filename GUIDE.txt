@@ -33,6 +33,14 @@ FORGOT PASSWORD
   Double-click  reset_password.bat , type the person's username, choose a new password for them,
   and tell it to them. (To see all accounts: it lists them first.)
 
+PRICE CHARTS
+  Tap any card (in your collection, scan results or search) to see its price chart.
+  The Collection tab shows your whole collection's value over time.
+  IMPORTANT: the free price source only updates prices every few weeks (the latest it has right now
+  is from mid-October), so a chart only gets a new point when the source publishes new prices.
+  Each point is dated with the date the SOURCE gave, never faked. Expect short charts at first.
+  While the app is running it checks prices for your cards about twice a day, or tap "Refresh prices".
+
 MORE CARDS
   This folder includes about 5,000 cards. Double-click  update_catalog.bat  to download the rest
   (a few hours; you can close it and re-run later - it continues).

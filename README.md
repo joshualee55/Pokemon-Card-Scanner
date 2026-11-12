@@ -20,4 +20,7 @@ Accounts: username + password, each user has a private collection (max 10 by def
 Set `SIGNUP_CODE` to require an invite code to sign up. Owner tools: `python -m app.admin list|reset|delete`.
 `python eval_matcher.py 100` benchmarks matching on synthetic degraded photos.
 
+Price history: `app/prices.py` stores one point per price update, dated by the source (`tcgplayer.updatedAt`).
+The free pokemontcg.io feed updates only every few weeks, so charts grow slowly; swap in a daily price source later.
+
 Windows users: see `GUIDE.txt` for a step-by-step walkthrough.

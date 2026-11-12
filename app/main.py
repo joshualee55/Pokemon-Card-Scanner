@@ -6,16 +6,20 @@ from .db import conn
 from .matcher import Index
 from .condition import estimate, MULT
 
-import pathlib
+import os, pathlib
 from fastapi.staticfiles import StaticFiles
 from fastapi import APIRouter
 app = FastAPI(title="Card Tracker")
+
+@app.on_event("startup")
+def _start_price_updates():
+    if not os.environ.get("NO_PRICE_THREAD"): prices.start_background()
 INDEX = Index()
 
 import os, sqlite3
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from . import auth
+from . import auth, prices
 
 PUBLIC = {"/api/signup", "/api/login", "/api/logout", "/api/me", "/api/meta"}
 
@@ -144,6 +148,55 @@ def me(request: Request): return {"user": request.state.user}
 @api.get("/meta")
 def meta(): return {"conditions": [{"code": k, "multiplier": v, "label": L} for (k, v), L in zip(MULT.items(),
     ["Near Mint", "Lightly Played", "Moderately Played", "Heavily Played", "Damaged"])]}
+
+def _points(db, card_id):
+    return [dict(day=r["day"], market=r["market"]) for r in db.execute(
+        "SELECT day, market FROM price_history WHERE card_id=? ORDER BY day", (card_id,))]
+
+@api.get("/card/{card_id}")
+def card_detail(card_id: str):
+    db = conn(); row = db.execute("SELECT * FROM cards WHERE id=?", (card_id,)).fetchone()
+    if not row: raise HTTPException(404, "Unknown card")
+    db.execute("INSERT OR IGNORE INTO tracked VALUES(?)", (card_id,)); db.commit()
+    if not _points(db, card_id):                      # first look: fetch a fresh price right now (short timeout)
+        prices.refresh([card_id], timeout=8, tries=1)
+        row = db.execute("SELECT * FROM cards WHERE id=?", (card_id,)).fetchone()
+    return {"card": {**card_dict(row), "price_day": row["price_day"]}, "points": _points(db, card_id)}
+
+@api.get("/collection/history")
+def collection_history(request: Request):
+    """Value over time of the cards you own NOW (condition-adjusted). Starts on the first day every
+    owned card has a price, so a newly added card never makes the line jump."""
+    db = conn()
+    rows = db.execute("SELECT card_id, condition, SUM(qty) q FROM collection WHERE user_id=? GROUP BY card_id, condition", (uid(request),)).fetchall()
+    series, counted = {}, 0
+    for r in rows:
+        pts = _points(db, r["card_id"])
+        if pts: series[(r["card_id"], r["condition"])] = (pts, r["q"] * MULT[r["condition"]]); counted += 1
+    if not series: return {"points": [], "counted": 0, "total": len(rows), "first_day": None}
+    first = max(v[0][0]["day"] for v in series.values())
+    days = sorted({p["day"] for v in series.values() for p in v[0]} | {first})
+    days = [d for d in days if d >= first]
+    out = []
+    for d in days:
+        tot = 0.0
+        for pts, w in series.values():
+            last = [p["market"] for p in pts if p["day"] <= d][-1]      # carry the last known price forward
+            tot += last * w
+        out.append({"day": d, "value": round(tot, 2)})
+    return {"points": out, "counted": counted, "total": len(rows), "first_day": first}
+
+_last_manual = [0.0]
+@api.post("/prices/refresh")
+def prices_refresh():
+    import threading, time
+    if time.time() - _last_manual[0] < 300: raise HTTPException(429, "Prices were just refreshed - try again in a few minutes")
+    _last_manual[0] = time.time(); threading.Thread(target=prices.refresh_tracked, daemon=True).start()
+    return {"started": True}
+
+@api.get("/prices/status")
+def prices_status():
+    t = prices.get_meta("last_refresh"); return {"last_refresh": float(t) if t else None, "tracked": len(prices.tracked_ids())}
 
 class Side(BaseModel):
     card_id: str; condition: str = "NM"; qty: int = 1

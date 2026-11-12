@@ -11,6 +11,10 @@ def conn():
       image_url TEXT, market REAL, prices_json TEXT, hash BLOB);
     CREATE TABLE IF NOT EXISTS collection(
       id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT, condition TEXT DEFAULT 'NM', qty INTEGER DEFAULT 1);
+    CREATE TABLE IF NOT EXISTS price_history(
+      card_id TEXT NOT NULL, day TEXT NOT NULL, market REAL NOT NULL, PRIMARY KEY(card_id, day));
+    CREATE TABLE IF NOT EXISTS tracked(card_id TEXT PRIMARY KEY);
+    CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
     CREATE TABLE IF NOT EXISTS users(
       id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE COLLATE NOCASE NOT NULL,
       pw_hash TEXT NOT NULL, created REAL NOT NULL);
@@ -21,4 +25,5 @@ def conn():
     if "user_id" not in cols: c.execute("ALTER TABLE collection ADD COLUMN user_id INTEGER")  # NULL = unclaimed (pre-accounts)
     cols = [r[1] for r in c.execute("PRAGMA table_info(cards)")]
     if "emb" not in cols: c.execute("ALTER TABLE cards ADD COLUMN emb BLOB")
+    if "price_day" not in cols: c.execute("ALTER TABLE cards ADD COLUMN price_day TEXT")   # date the source says the price is from
     return c
