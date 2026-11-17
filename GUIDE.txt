@@ -51,6 +51,15 @@ PRICE CHARTS
   prices until you add or open them.
   Want a longer history? Set BACKFILL_WEEKS (default 26) before starting, e.g. 52 for a year.
 
+HOW ACCURATE IS SCANNING? (real-photo test)
+  Every time you scan a card and tap "+ Add" on the correct match, the app records whether its FIRST guess
+  was right, and keeps the photo on your PC (never uploaded anywhere). If none of the 5 guesses is right,
+  tap "None of these - search by name" so that miss is counted too. Under the results you'll see a line like
+  "first guess right 14 of 20 (70%)".
+  To test properly: scan 20-30 of your real cards in different lighting, on different backgrounds
+  (table, playmat, hand), flat and slightly tilted, sleeved and not. Then double-click  test_scans.bat
+  and send me the output - it lists every card it got wrong so I can see what to improve.
+
 MORE CARDS
   This folder includes about 5,000 cards. Double-click  update_catalog.bat  to download the rest
   (a few hours; you can close it and re-run later - it continues).

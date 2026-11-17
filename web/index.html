@@ -120,20 +120,27 @@ async function sendScan(blob){
   const fd=new FormData();fd.append("file",blob,"scan.jpg");
   try{const r=await api("/scan",{method:"POST",body:fd});
     $("#scanout").innerHTML=`<h2>Best matches</h2><div class="mut">Suggested condition: <b>${r.condition.condition}</b> — rough guess; you set the final condition when adding</div>`+
-    r.matches.slice(0,4).map((m,i)=>`<div id="m${i}">`+cardRow(m,`<div><div class="mut">${Math.round(m.confidence*100)}%</div><button class="s" data-i="${i}">+ Add</button></div>`)+`<div id="p${i}"></div></div>`).join("");
-    $("#scanout").querySelectorAll("button[data-i]").forEach(b=>b.onclick=()=>openAdd(r.matches[b.dataset.i],b.dataset.i,r.condition.condition));
+    r.matches.slice(0,5).map((m,i)=>`<div id="m${i}">`+cardRow(m,`<div><div class="mut">${Math.round(m.confidence*100)}%</div><button class="s" data-i="${i}">+ Add</button></div>`)+`<div id="p${i}"></div></div>`).join("")+
+    `<div style="margin-top:8px"><button class="link" id="nomatch">None of these — search by name</button></div><div class="mut" id="scanstats"></div>`;
+    $("#scanout").querySelectorAll("button[data-i]").forEach(b=>b.onclick=()=>openAdd(r.matches[b.dataset.i],b.dataset.i,r.condition.condition,r.scan_id));
+    $("#nomatch").onclick=async()=>{await post("/scan/"+r.scan_id+"/choose",{card_id:null}).catch(()=>{});showStats();document.querySelector('nav [data-t=srch]').click();$("#q").focus()};
+    showStats();
   }catch(e){$("#scanout").innerHTML=`<div class="card">Scan failed (${e.message}). Has the catalogue been ingested?</div>`}}
 
 const vsel=(id,m,cur)=>(m.variants||[]).length>1?`<div class="sl"><label class="mut">Variant</label><select id="${id}" style="width:100%">${m.variants.map(v=>`<option value="${v.code}" ${v.code===cur?"selected":""}>${v.label} — ${money(v.market)}</option>`).join("")}</select></div>`:"";
 const vprice=(m,v)=>{const x=(m.variants||[]).find(z=>z.code===v);return x?x.market:m.market};
-function openAdd(m,i,sug){const box=$("#p"+i);if(box.innerHTML){box.innerHTML="";return}
+function openAdd(m,i,sug,scanId){const box=$("#p"+i);if(box.innerHTML){box.innerHTML="";return}
   box.innerHTML=`<div class="panel">${vsel("vs"+i,m,m.variant)}<b>Card condition</b>${slider("cs"+i,"NM",sug)}
    <div class="row"><span class="mut">Value</span><b class="price" id="pv${i}">${money(m.market)}</b><span class="grow"></span>
    Qty <input class="qty" id="q${i}" type="number" min="1" value="1"><button class="p" id="sv${i}">Save</button></div></div>`;
   const cv=()=>$("#vs"+i)?$("#vs"+i).value:m.variant;
   const upd=()=>{const pr=vprice(m,cv());$("#pv"+i).textContent=money(pr==null?null:pr*MULT[sliderVal("cs"+i)].multiplier)};
   bindSlider("cs"+i,upd);if($("#vs"+i))$("#vs"+i).onchange=upd;
-  $("#sv"+i).onclick=async()=>{await post("/collection",{card_id:m.id,condition:sliderVal("cs"+i),qty:+$("#q"+i).value||1,variant:cv()||null});box.innerHTML=`<div class="mut" style="padding:6px">✓ Added to collection</div>`}}
+  $("#sv"+i).onclick=async()=>{await post("/collection",{card_id:m.id,condition:sliderVal("cs"+i),qty:+$("#q"+i).value||1,variant:cv()||null});
+    if(scanId){await post("/scan/"+scanId+"/choose",{card_id:m.id}).catch(()=>{});showStats()}box.innerHTML=`<div class="mut" style="padding:6px">✓ Added to collection</div>`}}
+
+async function showStats(){const el=$("#scanstats");if(!el)return;try{const s=await api("/scan-stats");
+  el.textContent=s.answered?`Your scan accuracy so far: first guess right ${s.top1} of ${s.answered} (${Math.round(100*s.top1/s.answered)}%) · in the top 3: ${s.top3} · missed: ${s.missed}`:""}catch(e){}}
 
 // collection
 async function loadColl(){const r=await api("/collection");$("#total").textContent=money(r.total_value);

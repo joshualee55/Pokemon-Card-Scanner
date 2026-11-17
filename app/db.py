@@ -14,6 +14,9 @@ def conn():
     CREATE TABLE IF NOT EXISTS price_history(
       card_id TEXT NOT NULL, variant TEXT NOT NULL, day TEXT NOT NULL, market REAL NOT NULL, PRIMARY KEY(card_id, variant, day));
     CREATE TABLE IF NOT EXISTS tracked(card_id TEXT PRIMARY KEY);
+    CREATE TABLE IF NOT EXISTS scans(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, ts REAL NOT NULL,
+      top TEXT NOT NULL, chosen TEXT, rank INTEGER);   -- rank: 1..5 = which guess was right, 0 = none of them, NULL = not answered yet
     CREATE TABLE IF NOT EXISTS card_product(card_id TEXT PRIMARY KEY, product_id INTEGER, group_id INTEGER, checked REAL);
     CREATE TABLE IF NOT EXISTS tcg_checked(day TEXT NOT NULL, card_id TEXT NOT NULL, PRIMARY KEY(day, card_id));
     CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);

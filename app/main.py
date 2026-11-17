@@ -67,15 +67,49 @@ def reference(row):
     except Exception:
         return None
 
+SCAN_DIR = pathlib.Path(__file__).parent.parent / "data" / "scans"
+
+def save_scan(db, user_id, img, top_ids):
+    """Keep the photo + the app's top guesses so real-world accuracy can be measured (stays on this computer)."""
+    import time
+    cur = db.execute("INSERT INTO scans(user_id, ts, top) VALUES(?,?,?)", (user_id, time.time(), json.dumps(top_ids)))
+    db.commit()
+    try:
+        SCAN_DIR.mkdir(parents=True, exist_ok=True)
+        im = img.convert("RGB"); im.thumbnail((1280, 1280)); im.save(SCAN_DIR / f"{cur.lastrowid}.jpg", quality=88)
+    except Exception: pass
+    return cur.lastrowid
+
 @api.post("/scan")
-async def scan(file: UploadFile = File(...)):
+async def scan(request: Request, file: UploadFile = File(...)):
     img = Image.open(io.BytesIO(await file.read()))
     idx = INDEX.load(conn())
     if not idx.rows: raise HTTPException(503, "Run `python -m app.ingest` first")
     res = idx.search(img, k=5, w_fp=0.0)
     cond = estimate(img, reference(res[0][0]))
-    return {"condition": cond,
+    scan_id = save_scan(conn(), uid(request), img, [r["id"] for r, _ in res])
+    return {"scan_id": scan_id, "condition": cond,
             "matches": [{**card_dict(r, cond["condition"]), "confidence": round(s, 3)} for r, s in res]}
+
+class Choice(BaseModel):
+    card_id: str | None = None          # the card that was actually right; None = none of the guesses
+
+@api.post("/scan/{scan_id}/choose")
+def scan_choose(scan_id: int, c: Choice, request: Request):
+    db = conn()
+    row = db.execute("SELECT top FROM scans WHERE id=? AND user_id=?", (scan_id, uid(request))).fetchone()
+    if not row: raise HTTPException(404, "Not found")
+    top = json.loads(row["top"])
+    rank = (top.index(c.card_id) + 1) if c.card_id in top else 0
+    db.execute("UPDATE scans SET chosen=?, rank=? WHERE id=?", (c.card_id, rank, scan_id)); db.commit()
+    return {"rank": rank}
+
+@api.get("/scan-stats")
+def scan_stats(request: Request):
+    rows = [r[0] for r in conn().execute("SELECT rank FROM scans WHERE user_id=? AND rank IS NOT NULL", (uid(request),))]
+    n = len(rows)
+    return {"answered": n, "top1": sum(r == 1 for r in rows), "top3": sum(1 <= r <= 3 for r in rows),
+            "top5": sum(1 <= r <= 5 for r in rows), "missed": sum(r == 0 for r in rows)}
 
 @api.get("/search")
 def search(q: str, limit: int = 20):
