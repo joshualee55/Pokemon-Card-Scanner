@@ -1,0 +1,8 @@
+.git
+data
+venv
+__pycache__
+*.pyc
+*.zip
+*.bat
+GUIDE.txt

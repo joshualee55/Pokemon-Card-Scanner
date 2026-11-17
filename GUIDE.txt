@@ -60,6 +60,9 @@ HOW ACCURATE IS SCANNING? (real-photo test)
   (table, playmat, hand), flat and slightly tilted, sleeved and not. Then double-click  test_scans.bat
   and send me the output - it lists every card it got wrong so I can see what to improve.
 
+PUTTING IT ONLINE PROPERLY (no PC needed)
+  See HOSTING.md. Double-click export_catalog.bat first.
+
 MORE CARDS
   This folder includes about 5,000 cards. Double-click  update_catalog.bat  to download the rest
   (a few hours; you can close it and re-run later - it continues).

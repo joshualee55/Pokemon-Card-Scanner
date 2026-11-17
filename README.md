@@ -26,3 +26,5 @@ Price history: `app/tcgcsv.py` pulls daily TCGplayer prices from TCGCSV (free da
 Cards are matched to TCGplayer products via the pokemontcg.io link redirect. The old pokemontcg.io feed is only a fallback.
 
 Windows users: see `GUIDE.txt` for a step-by-step walkthrough.
+
+Hosting: see `HOSTING.md` (Dockerfile, `DATA_DIR`, `CATALOG_URL`, `SIGNUP_CODE`, `TRUST_PROXY`, `CATALOG_TOPUP`).

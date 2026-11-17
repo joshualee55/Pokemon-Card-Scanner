@@ -1,5 +1,6 @@
 import sqlite3, pathlib, os
-DB = pathlib.Path(os.environ.get("CARDS_DB") or pathlib.Path(__file__).parent.parent / "data" / "cards.db")
+DATA = pathlib.Path(os.environ.get("DATA_DIR") or pathlib.Path(__file__).parent.parent / "data")   # hosted: a persistent volume
+DB = pathlib.Path(os.environ.get("CARDS_DB") or DATA / "cards.db")
 
 def conn():
     DB.parent.mkdir(parents=True, exist_ok=True)

@@ -2,7 +2,7 @@ import io
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel
 from PIL import Image
-from .db import conn
+from .db import conn, DATA
 from .matcher import Index
 from .condition import estimate, MULT
 
@@ -12,8 +12,11 @@ from fastapi import APIRouter
 app = FastAPI(title="Card Tracker")
 
 @app.on_event("startup")
-def _start_price_updates():
+def _startup():
+    from . import seed
+    seed.ensure_catalog()                       # hosted: first start loads the card catalogue from CATALOG_URL
     if not os.environ.get("NO_PRICE_THREAD"): prices.start_background()
+    if os.environ.get("CATALOG_TOPUP"): seed.start_topup()
 INDEX = Index()
 
 import os, sqlite3
@@ -21,7 +24,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from . import auth, prices, tcgcsv
 
-PUBLIC = {"/api/signup", "/api/login", "/api/logout", "/api/me", "/api/meta"}
+PUBLIC = {"/api/signup", "/api/login", "/api/logout", "/api/me", "/api/meta", "/healthz"}
 
 @app.middleware("http")
 async def auth_gate(request: Request, call_next):
@@ -53,7 +56,7 @@ def card_dict(r, cond="NM", variant=None):
             "variants": [{"code": k, "label": prices.label(k), "market": vp[k]} for k in prices.ordered(vp)],
             "adjusted_value": round(m * MULT[cond], 2) if m else None}
 
-IMG_DIR = pathlib.Path(__file__).parent.parent / "data" / "images"
+IMG_DIR = DATA / "images"
 
 def reference(row):
     """Fetch (and cache on disk) the matched card's official image for comparison."""
@@ -67,7 +70,7 @@ def reference(row):
     except Exception:
         return None
 
-SCAN_DIR = pathlib.Path(__file__).parent.parent / "data" / "scans"
+SCAN_DIR = DATA / "scans"
 
 def save_scan(db, user_id, img, top_ids):
     """Keep the photo + the app's top guesses so real-world accuracy can be measured (stays on this computer)."""
@@ -85,7 +88,7 @@ async def scan(request: Request, file: UploadFile = File(...)):
     img = Image.open(io.BytesIO(await file.read()))
     idx = INDEX.load(conn())
     if not idx.rows: raise HTTPException(503, "Run `python -m app.ingest` first")
-    res = idx.search(img, k=5, w_fp=0.0)
+    res = idx.search(img, k=5)
     cond = estimate(img, reference(res[0][0]))
     scan_id = save_scan(conn(), uid(request), img, [r["id"] for r, _ in res])
     return {"scan_id": scan_id, "condition": cond,
@@ -164,7 +167,12 @@ def remove(entry_id: int, request: Request):
 class Creds(BaseModel):
     username: str; password: str; invite: str = ""
 
-def _client(request): return (request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "?"))
+def _client(request):
+    """Who is asking (for throttling). Behind a hosting proxy (TRUST_PROXY=1) use the forwarded address."""
+    if os.environ.get("TRUST_PROXY"):
+        fwd = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        if fwd: return fwd
+    return request.client.host if request.client else "?"
 
 def _cookie(request, resp, token):
     https = request.headers.get("x-forwarded-proto") == "https" or request.url.scheme == "https"
@@ -282,6 +290,11 @@ def trade(t: Trade):
     diff = round(rt - gt, 2)
     verdict = "fair" if abs(diff) <= 0.05 * max(gt, rt, 1) else ("you win" if diff > 0 else "you lose")
     return {"give": g, "give_total": gt, "get": r_, "get_total": rt, "difference": diff, "verdict": verdict}
+
+@app.get("/healthz")
+def healthz():
+    db = conn(); n = db.execute("SELECT COUNT(*) FROM cards WHERE emb IS NOT NULL").fetchone()[0]; db.close()
+    return {"ok": True, "cards": n}
 
 app.include_router(api)
 app.mount("/", StaticFiles(directory=pathlib.Path(__file__).parent.parent / "web", html=True), name="web")

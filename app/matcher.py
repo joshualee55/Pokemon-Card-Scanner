@@ -54,20 +54,22 @@ def embed(img): return embed_many([img])[0]
 
 class Index:
     """In-memory matrix of all card embeddings; rebuilt when the card count changes."""
+    COLS = "id,name,set_name,number,rarity,image_url,market,prices_json,price_day"
     def __init__(self): self.n = -1
     def load(self, db):
         n = db.execute("SELECT COUNT(*) FROM cards WHERE emb IS NOT NULL").fetchone()[0]
         if n != self.n:
-            self.rows = db.execute("SELECT * FROM cards WHERE emb IS NOT NULL").fetchall()
-            self.E = np.stack([from_blob(r["emb"]) for r in self.rows]) if self.rows else None
-            self.F = np.stack([from_blob(r["hash"]) for r in self.rows]) if self.rows else None
+            self.rows, vecs = [], []
+            for r in db.execute(f"SELECT {self.COLS},emb FROM cards WHERE emb IS NOT NULL"):
+                self.rows.append({k: r[k] for k in r.keys() if k != "emb"})     # keep card info light; vectors live in E
+                vecs.append(from_blob(r["emb"]))
+            self.E = np.stack(vecs) if vecs else None
             self.n = n
         return self
-    def search(self, img, k=5, w_fp=0.0, rect=True):
+    def search(self, img, k=5, rect=True):
         if rect:
             from .rectify import rectify
             img = rectify(img)
         clip = self.E @ embed(img)
-        s = clip + w_fp * (self.F @ fingerprint(img)) if w_fp else clip
-        idx = np.argsort(-s)[:k]
-        return [(self.rows[i], float(clip[i])) for i in idx]   # rank by blend, report CLIP similarity
+        idx = np.argsort(-clip)[:k]
+        return [(self.rows[i], float(clip[i])) for i in idx]
