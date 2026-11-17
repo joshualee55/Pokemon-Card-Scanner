@@ -4,6 +4,7 @@ track. Every history point is dated by the archive day it came from."""
 import os, re, json, time, tempfile, pathlib, threading, datetime, requests
 from .db import conn
 from . import prices as P
+from . import mapping
 
 UA = {"User-Agent": "CardTrackerPersonal/0.1 (personal collection tracker)"}
 BASE = "https://tcgcsv.com"
@@ -28,18 +29,23 @@ def _product_from_redirect(card_id):
     """TCGplayer product number for a pokemontcg.io card id. Returns int, None (no link), or raises on network error."""
     if not P._ID.match(card_id): return None
     r = requests.get(f"https://prices.pokemontcg.io/tcgplayer/{card_id}", headers=UA, allow_redirects=False, timeout=15)
+    if r.status_code >= 500: raise requests.RequestException(f"link service error {r.status_code}")   # temporary: never remember it
     m = re.search(r"/product/(\d+)", r.headers.get("location", ""))
-    return int(m.group(1)) if m else None
+    return int(m.group(1)) if m else None                                                            # 404 etc: genuinely no link
 
 def resolve_products(db, ids, limit=40):
-    have = {r[0]: r[1] for r in db.execute("SELECT card_id, checked FROM card_product")}
+    """Make sure each card has a TCGplayer product. 1) match by set+number+name (mapping.py), 2) the pokemontcg.io
+    link as a backup. Temporary errors are retried later and never remembered as 'no link'."""
+    mapping.build(db)                                           # cheap; fills every card it can match
+    mapped = {r[0]: r[1] for r in db.execute("SELECT card_id, product_id FROM card_product")}
+    checked = {r[0]: r[1] or 0 for r in db.execute("SELECT card_id, checked FROM card_product")}
     n = 0
     for cid in ids:
-        if cid in have and (time.time() - (have[cid] or 0) < 7 * 86400 or db.execute("SELECT product_id FROM card_product WHERE card_id=?", (cid,)).fetchone()[0]):
-            continue                                    # known (or recently found to have no link)
+        if mapped.get(cid): continue                            # already have a product
+        if cid in mapped and time.time() - checked[cid] < 86400: continue    # confirmed 'no link' within the last day
         if n >= limit: break
         try: pid = _product_from_redirect(cid)
-        except requests.RequestException: continue      # network hiccup: try again next time, don't cache
+        except requests.RequestException: continue              # temporary: try again next time, don't cache
         db.execute("INSERT OR REPLACE INTO card_product(card_id, product_id, group_id, checked) VALUES(?,?,NULL,?)", (cid, pid, time.time()))
         db.commit(); n += 1; time.sleep(0.3)
 
@@ -107,6 +113,29 @@ def sync(max_archives=6, only=None):
     finally:
         db.close(); _lock.release()
     return res
+
+def refresh_all_current():
+    """Update the CURRENT price of every matched card from the newest published day (one ~4 MB download).
+    Fixes cards whose old price feed is stale or missing (e.g. the newest sets). No history is stored here."""
+    if not _lock.acquire(blocking=False): return 0
+    db = conn()
+    try:
+        prod = {r["card_id"]: r["product_id"] for r in db.execute("SELECT card_id, product_id FROM card_product WHERE product_id IS NOT NULL")}
+        if not prod: return 0
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        for back in range(0, 4):                                   # newest published day: today, else yesterday...
+            day = today - datetime.timedelta(back); ds = day.isoformat()
+            if P.get_meta("all_current_day") == ds: return 0         # already up to date
+            status, got = fetch_day(day, set(prod.values()))
+            if status == "ok": break
+        else: return 0
+        n = 0
+        for cid, pid in prod.items():
+            info = got.get(pid)
+            if info: _apply_current(db, cid, ds, info); n += 1
+        db.commit(); P.set_meta("all_current_day", ds); return n
+    finally:
+        db.close(); _lock.release()
 
 def sync_all(only=None):
     tot = {"done": 0, "errors": 0}

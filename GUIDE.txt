@@ -47,8 +47,10 @@ PRICE CHARTS
   background - about 2 weeks of daily prices plus weekly points back ~6 months. This takes a minute or two
   per card the first time (it shows "Fetching price history"). After that it adds a new point every day
   while the app is running (it checks a few times a day), or tap "Refresh prices".
-  Only cards in collections (or that you open) get this daily data; other cards in Search show older
-  prices until you add or open them.
+  Every card the app can match to TCGplayer (about 99%) now gets a fresh price every day, including the newest
+  sets, promos and Trainer Gallery cards. Full history (the chart) is built for cards in your collection or that
+  you open. A few cards (some odd promos) have no TCGplayer listing, so no price or history - the card sheet says so.
+  To see the numbers for YOUR cards, double-click check_prices.bat (first run downloads a product list, 2-3 min).
   Want a longer history? Set BACKFILL_WEEKS (default 26) before starting, e.g. 52 for a year.
 
 HOW ACCURATE IS SCANNING? (real-photo test)

@@ -90,7 +90,11 @@ def tracked_ids():
     finally: db.close()
 
 def refresh_tracked():
-    from . import tcgcsv
+    from . import tcgcsv, mapping
+    try:                                                # keep the TCGplayer product list fresh (weekly-ish) and the matching complete
+        mapping.load_products(); mapping.build()
+        tcgcsv.refresh_all_current()
+    except Exception as e: print("all-card price refresh failed:", repr(e)[:120])
     r = tcgcsv.sync_all()
     if r["done"] or not r["errors"]:                    # TCGCSV answered (even if there was nothing new)
         set_meta("last_refresh", time.time()); return r["done"]
