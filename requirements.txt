@@ -6,3 +6,4 @@ uvicorn
 python-multipart
 onnxruntime
 opencv-python-headless
+py7zr

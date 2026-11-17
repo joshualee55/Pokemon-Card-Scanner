@@ -6,6 +6,8 @@ if not exist venv\Scripts\python.exe (
   pause
   exit /b 1
 )
+echo Checking libraries (first start after an update can take a minute)...
+venv\Scripts\python.exe -m pip install -q -r requirements.txt
 echo App running at http://localhost:8000  (close this window to stop it)
 venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 pause

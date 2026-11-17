@@ -21,7 +21,8 @@ Set `SIGNUP_CODE` to require an invite code to sign up. Owner tools: `python -m 
 `python eval_matcher.py 100` benchmarks matching on synthetic degraded photos.
 
 Variants: each collection entry records which printing you own (normal/holofoil/reverseHolofoil/...); prices and history are per variant.
-Price history: `app/prices.py` stores one point per variant per price update, dated by the source (`tcgplayer.updatedAt`).
-The free pokemontcg.io feed updates only every few weeks, so charts grow slowly; swap in a daily price source later.
+Price history: `app/tcgcsv.py` pulls daily TCGplayer prices from TCGCSV (free daily archives; ~2 weeks daily + weekly back
+`BACKFILL_WEEKS`, default 26), only for cards in collections or that were opened. Each point is dated by its archive day.
+Cards are matched to TCGplayer products via the pokemontcg.io link redirect. The old pokemontcg.io feed is only a fallback.
 
 Windows users: see `GUIDE.txt` for a step-by-step walkthrough.

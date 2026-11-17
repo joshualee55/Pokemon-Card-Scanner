@@ -141,7 +141,8 @@ async function loadColl(){const r=await api("/collection");$("#total").textConte
     rangeChart($("#cchips"),$("#cchart"),h.points.map(p=>({day:p.day,v:p.value})));
     const when=st.last_refresh?new Date(st.last_refresh*1000).toLocaleString():"not yet";
     $("#cnote").innerHTML=(h.total?`Shows the value of the ${h.total} card type${h.total>1?"s":""} you own now${h.counted<h.total?` (${h.counted} with price history so far)`:""}, at your chosen conditions. `:"Add cards to see their value over time. ")+
-      `Prices checked: ${when} <button class="link" id="rp">Refresh prices</button>`;
+      (st.pending?`⏳ Fetching price history for ${st.pending} card${st.pending>1?"s":""}… `:"")+`Prices checked: ${when} <button class="link" id="rp">Refresh prices</button>`;
+    if(st.pending&&(loadColl.n=(loadColl.n||0)+1)<20&&$("#coll").classList.contains("on"))setTimeout(loadColl,12000);else loadColl.n=0;
     const b=$("#rp");if(b)b.onclick=async()=>{b.textContent="Refreshing…";try{await post("/prices/refresh",{});setTimeout(loadColl,8000)}catch(e){b.textContent=e.message}}}).catch(()=>{});
   $("#items").innerHTML=r.items.map((i,n)=>`<div>`+cardRow(i,`<div class="mut" style="text-align:right">${i.condition} ×${i.qty}<br><button class="s sm" data-e="${n}">Edit</button></div>`)+`<div id="ep${n}"></div></div>`).join("")||`<p class="mut">No cards yet — scan one.</p>`;
   $("#items").querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>{const it=r.items[b.dataset.e],n=b.dataset.e,box=$("#ep"+n);if(box.innerHTML){box.innerHTML="";return}
@@ -200,7 +201,7 @@ function lineChart(el,pts,{fmt=money}={}){
     pts.forEach(p=>{const d=Math.abs(X(p)-x);if(d<bd){bd=d;best=p}});
     xh.setAttribute("x1",X(best));xh.setAttribute("x2",X(best));xh.style.display="";hd.setAttribute("cx",X(best));hd.setAttribute("cy",Y(best.v));hd.style.display="";
     tip.innerHTML=`<b>${fmt(best.v)}</b>${dfmt(best.day,1)}`;tip.style.display="block";
-    const px=X(best)/W*r.width;tip.style.left=Math.max(50,Math.min(r.width-50,px))+"px";tip.style.top=(Y(best.v)/H*r.height)+"px"}
+    const px=X(best)/W*r.width,py=Y(best.v)/H*r.height;tip.style.left=Math.max(50,Math.min(r.width-50,px))+"px";tip.style.top=py+"px";tip.style.transform=py<70?"translate(-50%,14px)":"translate(-50%,-110%)"}
   const hide=()=>{tip.style.display=xh.style.display=hd.style.display="none"},hit=el.querySelector("#hit");
   hit.addEventListener("pointermove",show);hit.addEventListener("pointerdown",show);hit.addEventListener("pointerleave",hide);
   el.querySelector("#tbl").onclick=e=>{const box=el.querySelector("#tblbox");if(box.innerHTML){box.innerHTML="";e.target.textContent="Show as table";return}
@@ -208,16 +209,17 @@ function lineChart(el,pts,{fmt=money}={}){
 }
 function rangeChart(chipsEl,chartEl,allPts,def=0){let cur=def;const draw=()=>{chipsEl.innerHTML=chipsHTML("",cur);
     chipsEl.querySelectorAll("button").forEach(b=>b.onclick=()=>{cur=+b.dataset.r;draw()});lineChart(chartEl,inRange(allPts,cur))};draw()}
-async function openCard(id,variant){const sh=$("#sheet"),box=$("#sbox");sh.classList.add("on");box.innerHTML=`<div class="mut">Loading…</div>`;
+async function openCard(id,variant,tries=0){const sh=$("#sheet"),box=$("#sbox");sh.classList.add("on");box.innerHTML=`<div class="mut">Loading…</div>`;
   try{const r=await api("/card/"+encodeURIComponent(id)+(variant?"?variant="+encodeURIComponent(variant):"")),c=r.card,pts=r.points.map(p=>({day:p.day,v:p.market}));
     box.innerHTML=`<div class="row" style="align-items:flex-start"><img class="big" src="${c.image}"><div class="grow"><b style="font-size:18px">${c.name}</b>
       <div class="mut">${c.set} · #${c.number}${c.rarity?" · "+c.rarity:""}</div><div class="big price">${money(c.market)}</div>
       <div class="mut">${c.variant_label||""}${c.price_day?" · price from "+dfmt(c.price_day,1):""}</div></div><button class="s" id="sx">✕</button></div>
       ${(c.variants||[]).length>1?`<div class="chips" id="vchips" style="margin-top:12px;flex-wrap:wrap">${c.variants.map(v=>`<button data-v="${v.code}" class="${v.code===c.variant?"on":""}">${v.label} ${money(v.market)}</button>`).join("")}</div>`:""}
       <div class="row" style="margin-top:14px"><b class="grow">Price over time</b><div class="chips" id="schips"></div></div><div id="schart"></div>
-      <div class="mut" style="margin-top:8px">Each variant has its own price and history. Points are added whenever the price source updates, so history builds up over time.</div>`;
+      <div class="mut" style="margin-top:8px">${r.syncing?"⏳ Fetching price history… this takes a minute or two the first time. ":""}${r.no_link?"No TCGplayer price link was found for this card, so there is no daily history for it. ":""}Prices: TCGplayer market prices via TCGCSV, updated daily. Each variant has its own price and history.</div>`;
     $("#sx").onclick=()=>sh.classList.remove("on");rangeChart($("#schips"),$("#schart"),pts);
-    document.querySelectorAll("#vchips button").forEach(b=>b.onclick=()=>openCard(id,b.dataset.v))
+    document.querySelectorAll("#vchips button").forEach(b=>b.onclick=()=>openCard(id,b.dataset.v));
+    if(r.syncing&&tries<12)setTimeout(()=>{if($("#sheet").classList.contains("on")&&$("#sx"))openCard(id,c.variant,tries+1)},10000)
   }catch(e){box.innerHTML=`<div class="card">Couldn't load that card (${e.message}). <button class="s" id="sx">Close</button></div>`;$("#sx").onclick=()=>sh.classList.remove("on")}}
 $("#sheet").addEventListener("click",e=>{if(e.target.id==="sheet")$("#sheet").classList.remove("on")});
 document.addEventListener("click",e=>{const o=e.target.closest("[data-open]");if(o)openCard(o.dataset.open,o.dataset.variant||undefined)});

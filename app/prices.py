@@ -90,11 +90,15 @@ def tracked_ids():
     finally: db.close()
 
 def refresh_tracked():
-    ids = tracked_ids(); n = refresh(ids)
-    if n or not ids: set_meta("last_refresh", time.time())      # only count it as done if something worked
+    from . import tcgcsv
+    r = tcgcsv.sync_all()
+    if r["done"] or not r["errors"]:                    # TCGCSV answered (even if there was nothing new)
+        set_meta("last_refresh", time.time()); return r["done"]
+    ids = tracked_ids(); n = refresh(ids)               # TCGCSV unreachable: fall back to the old (slow-moving) feed
+    if n or not ids: set_meta("last_refresh", time.time())
     return n
 
-def start_background(every_hours=12):
+def start_background(every_hours=6):
     def loop():
         while True:
             try:

@@ -6,6 +6,8 @@ if not exist venv\Scripts\python.exe (
   pause
   exit /b 1
 )
+echo Checking libraries (first start after an update can take a minute)...
+venv\Scripts\python.exe -m pip install -q -r requirements.txt
 echo Friends need an INVITE CODE to create an account. Make one up (letters and numbers only).
 set /p SIGNUP_CODE=Invite code: 
 start "Card Tracker server - keep open" cmd /k "venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000"

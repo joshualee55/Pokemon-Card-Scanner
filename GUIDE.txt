@@ -42,10 +42,14 @@ VARIANTS (Holofoil, Reverse Holofoil, Normal, 1st Edition...)
 PRICE CHARTS
   Tap any card (in your collection, scan results or search) to see its price chart.
   The Collection tab shows your whole collection's value over time.
-  IMPORTANT: the free price source only updates prices every few weeks (the latest it has right now
-  is from mid-October), so a chart only gets a new point when the source publishes new prices.
-  Each point is dated with the date the SOURCE gave, never faked. Expect short charts at first.
-  While the app is running it checks prices for your cards about twice a day, or tap "Refresh prices".
+  Prices come from TCGplayer's market prices via TCGCSV (free), updated daily.
+  When a card is added to your collection (or you open it), the app downloads its recent history in the
+  background - about 2 weeks of daily prices plus weekly points back ~6 months. This takes a minute or two
+  per card the first time (it shows "Fetching price history"). After that it adds a new point every day
+  while the app is running (it checks a few times a day), or tap "Refresh prices".
+  Only cards in collections (or that you open) get this daily data; other cards in Search show older
+  prices until you add or open them.
+  Want a longer history? Set BACKFILL_WEEKS (default 26) before starting, e.g. 52 for a year.
 
 MORE CARDS
   This folder includes about 5,000 cards. Double-click  update_catalog.bat  to download the rest

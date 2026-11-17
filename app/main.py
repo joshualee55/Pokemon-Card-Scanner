@@ -19,7 +19,7 @@ INDEX = Index()
 import os, sqlite3
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from . import auth, prices
+from . import auth, prices, tcgcsv
 
 PUBLIC = {"/api/signup", "/api/login", "/api/logout", "/api/me", "/api/meta"}
 
@@ -97,6 +97,7 @@ def add(a: Add, request: Request):
     check_variant(row, a.variant)
     db.execute("INSERT INTO collection(card_id,condition,qty,user_id,variant) VALUES(?,?,?,?,?)",
                (a.card_id, a.condition, max(1, a.qty), uid(request), resolve_variant(row, a.variant))); db.commit()
+    if tcgcsv.pending(a.card_id): tcgcsv.kick(a.card_id)          # start fetching its price history right away
     return {"ok": True}
 
 @api.get("/collection")
@@ -180,11 +181,11 @@ def card_detail(card_id: str, variant: str | None = None):
     db = conn(); row = db.execute("SELECT * FROM cards WHERE id=?", (card_id,)).fetchone()
     if not row: raise HTTPException(404, "Unknown card")
     db.execute("INSERT OR IGNORE INTO tracked VALUES(?)", (card_id,)); db.commit()
-    if not db.execute("SELECT 1 FROM price_history WHERE card_id=?", (card_id,)).fetchone():
-        prices.refresh([card_id], timeout=8, tries=1)      # first look: fetch a fresh price right now (short timeout)
-        row = db.execute("SELECT * FROM cards WHERE id=?", (card_id,)).fetchone()
+    syncing = tcgcsv.pending(card_id)
+    if syncing: tcgcsv.kick(card_id)                   # fetch daily prices/history in the background, UI polls
+    row = db.execute("SELECT * FROM cards WHERE id=?", (card_id,)).fetchone()
     v = resolve_variant(row, variant)
-    return {"card": {**card_dict(row, "NM", v), "price_day": row["price_day"]}, "points": _points(db, card_id, v) if v else []}
+    return {"card": {**card_dict(row, "NM", v), "price_day": row["price_day"]}, "points": _points(db, card_id, v) if v else [], "syncing": syncing, "no_link": tcgcsv.no_link(card_id)}
 
 @api.get("/collection/history")
 def collection_history(request: Request):
@@ -222,7 +223,8 @@ def prices_refresh():
 
 @api.get("/prices/status")
 def prices_status():
-    t = prices.get_meta("last_refresh"); return {"last_refresh": float(t) if t else None, "tracked": len(prices.tracked_ids())}
+    t = prices.get_meta("last_refresh"); ids = prices.tracked_ids()
+    return {"last_refresh": float(t) if t else None, "tracked": len(ids), "pending": sum(tcgcsv.pending(c) for c in ids)}
 
 class Side(BaseModel):
     card_id: str; condition: str = "NM"; qty: int = 1; variant: str | None = None
